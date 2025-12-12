@@ -14,7 +14,7 @@ from .config import USAGE_DB_PATH
 @dataclass
 class GraphNode:
     id: str            # e.g. "job::J-FIN-DLY"
-    type: str          # e.g. "job", "user", "company_ou"
+    type: str          # e.g. "job", "user", "workspace"
     properties: Dict[str, Any]
 
 
@@ -55,21 +55,21 @@ def _add_edge(
 # Build nodes & edges from each table
 # ---------------------------------------------------------------------------
 
-def _build_company_ou(nodes: Dict[str, GraphNode]) -> None:
+def _build_workspace(nodes: Dict[str, GraphNode]) -> None:
     with _get_conn() as conn:
         rows = conn.execute("""
-            SELECT company_ou_id, name, cost_center_code, description
-            FROM company_ou
+            SELECT workspace_id, name, cost_center_code, description
+            FROM workspace
         """).fetchall()
 
     for r in rows:
-        nid = f"ou::{r['company_ou_id']}"
+        nid = f"ou::{r['workspace_id']}"
         _add_node(
             nodes,
             nid,
-            "company_ou",
+            "workspace",
             {
-                "company_ou_id": r["company_ou_id"],
+                "workspace_id": r["workspace_id"],
                 "name": r["name"],
                 "cost_center_code": r["cost_center_code"],
                 "description": r["description"],
@@ -80,13 +80,13 @@ def _build_company_ou(nodes: Dict[str, GraphNode]) -> None:
 def _build_users(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
     with _get_conn() as conn:
         rows = conn.execute("""
-            SELECT user_id, name, company_ou_id, department
+            SELECT user_id, name, workspace_id, department
             FROM users_lookup
         """).fetchall()
 
     for r in rows:
         user_id = f"user::{r['user_id']}"
-        ou_id = f"ou::{r['company_ou_id']}"
+        ou_id = f"ou::{r['workspace_id']}"
 
         _add_node(
             nodes,
@@ -95,7 +95,7 @@ def _build_users(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
             {
                 "user_id": r["user_id"],
                 "name": r["name"],
-                "company_ou_id": r["company_ou_id"],
+                "workspace_id": r["workspace_id"],
                 "department": r["department"],
             },
         )
@@ -113,13 +113,13 @@ def _build_jobs(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
                 job_name,
                 description,
                 tags,
-                company_ou_id
+                workspace_id
             FROM jobs
         """).fetchall()
 
     for r in rows:
         job_id = f"job::{r['job_id']}"
-        ou_id = f"ou::{r['company_ou_id']}"
+        ou_id = f"ou::{r['workspace_id']}"
 
         _add_node(
             nodes,
@@ -130,7 +130,7 @@ def _build_jobs(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
                 "job_name": r["job_name"],
                 "description": r["description"],
                 "tags": r["tags"],
-                "company_ou_id": r["company_ou_id"],
+                "workspace_id": r["workspace_id"],
             },
         )
         # JOB -> OU (OWNED_BY)
@@ -146,13 +146,13 @@ def _build_compute_resources(nodes: Dict[str, GraphNode], edges: List[GraphEdge]
                 compute_id,
                 compute_name,
                 compute_type,
-                company_ou_id
+                workspace_id
             FROM non_job_compute
         """).fetchall()
 
     for r in rows:
         cid = f"compute::{r['compute_id']}"
-        ou_id = f"ou::{r['company_ou_id']}"
+        ou_id = f"ou::{r['workspace_id']}"
 
         _add_node(
             nodes,
@@ -162,7 +162,7 @@ def _build_compute_resources(nodes: Dict[str, GraphNode], edges: List[GraphEdge]
                 "compute_id": r["compute_id"],
                 "compute_name": r["compute_name"],
                 "compute_type": r["compute_type"],
-                "company_ou_id": r["company_ou_id"],
+                "workspace_id": r["workspace_id"],
             },
         )
         # COMPUTE_RESOURCE -> OU (OWNED_BY)
@@ -405,7 +405,7 @@ def _build_queries(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
                 q.warehouse_sku,
                 q.sql_text,
                 q.error_message,
-                u.company_ou_id,
+                u.workspace_id,
                 u.name AS user_name,
                 u.department AS department
             FROM sql_query_history q
@@ -429,7 +429,7 @@ def _build_queries(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
                 "warehouse_sku": r["warehouse_sku"],
                 "sql_text": r["sql_text"],
                 "error_message": r["error_message"],
-                "company_ou_id": r["company_ou_id"],
+                "workspace_id": r["workspace_id"],
                 "user_name": r["user_name"],
                 "department": r["department"],
             },
@@ -470,7 +470,7 @@ def build_usage_graph() -> Tuple[Dict[str, GraphNode], List[GraphEdge]]:
     nodes: Dict[str, GraphNode] = {}
     edges: List[GraphEdge] = []
 
-    _build_company_ou(nodes)
+    _build_workspace(nodes)
     _build_users(nodes, edges)
     _build_jobs(nodes, edges)
     _build_compute_resources(nodes, edges)

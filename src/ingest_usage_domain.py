@@ -28,25 +28,25 @@ def _get_conn() -> sqlite3.Connection:
 # ORG UNIT DOCUMENTS
 # ---------------------------------------------------------------------------
 
-def _fetch_company_ou_docs() -> List[RagDoc]:
+def _fetch_workspace_docs() -> List[RagDoc]:
     with _get_conn() as conn:
         rows = conn.execute("""
-            SELECT company_ou_id, name, cost_center_code, description
-            FROM company_ou
+            SELECT workspace_id, name, cost_center_code, description
+            FROM workspace
         """).fetchall()
 
     docs = []
     for r in rows:
         docs.append(RagDoc(
-            doc_id=f"ou::{r['company_ou_id']}",
+            doc_id=f"ou::{r['workspace_id']}",
             text=(
-                f"Org Unit: {r['name']} (ID: {r['company_ou_id']})\n"
+                f"Org Unit: {r['name']} (ID: {r['workspace_id']})\n"
                 f"Cost Center: {r['cost_center_code']}\n\n"
                 f"Description:\n{r['description']}"
             ),
             metadata={
-                "type": "company_ou",
-                "company_ou_id": r["company_ou_id"],
+                "type": "workspace",
+                "workspace_id": r["workspace_id"],
                 "ou_name": r["name"],
                 "cost_center_code": r["cost_center_code"],
             }
@@ -61,7 +61,7 @@ def _fetch_company_ou_docs() -> List[RagDoc]:
 def _fetch_user_docs() -> List[RagDoc]:
     with _get_conn() as conn:
         rows = conn.execute("""
-            SELECT user_id, name, department, company_ou_id
+            SELECT user_id, name, department, workspace_id
             FROM users_lookup
         """).fetchall()
 
@@ -72,14 +72,14 @@ def _fetch_user_docs() -> List[RagDoc]:
             text=(
                 f"User: {r['name']} (ID: {r['user_id']})\n"
                 f"Department: {r['department']}\n"
-                f"Org Unit: {r['company_ou_id']}"
+                f"Org Unit: {r['workspace_id']}"
             ),
             metadata={
                 "type": "user",
                 "user_id": r["user_id"],
                 "name": r["name"],
                 "department": r["department"],
-                "company_ou_id": r["company_ou_id"],
+                "workspace_id": r["workspace_id"],
             }
         ))
     return docs
@@ -97,11 +97,11 @@ def _fetch_job_docs() -> List[RagDoc]:
                 j.job_name,
                 j.description,
                 j.tags,
-                j.company_ou_id,
+                j.workspace_id,
                 ou.name AS ou_name,
                 ou.cost_center_code
             FROM jobs j
-            LEFT JOIN company_ou ou ON j.company_ou_id = ou.company_ou_id
+            LEFT JOIN workspace ou ON j.workspace_id = ou.workspace_id
         """).fetchall()
 
     docs = []
@@ -110,7 +110,7 @@ def _fetch_job_docs() -> List[RagDoc]:
             doc_id=f"job::{r['job_id']}",
             text=(
                 f"Job: {r['job_name']} (ID: {r['job_id']})\n"
-                f"Org Unit: {r['ou_name']} ({r['company_ou_id']})\n"
+                f"Org Unit: {r['ou_name']} ({r['workspace_id']})\n"
                 f"Cost Center: {r['cost_center_code']}\n\n"
                 f"Description:\n{r['description']}\n\n"
                 f"Tags: {r['tags']}"
@@ -119,7 +119,7 @@ def _fetch_job_docs() -> List[RagDoc]:
                 "type": "job",
                 "job_id": r["job_id"],
                 "job_name": r["job_name"],
-                "company_ou_id": r["company_ou_id"],
+                "workspace_id": r["workspace_id"],
                 "ou_name": r["ou_name"],
                 "cost_center_code": r["cost_center_code"],
                 "tags_json": r["tags"],
@@ -139,11 +139,11 @@ def _fetch_compute_resource_docs() -> List[RagDoc]:
                 c.compute_id,
                 c.compute_name,
                 c.compute_type,
-                c.company_ou_id,
+                c.workspace_id,
                 ou.name AS ou_name,
                 ou.cost_center_code
             FROM non_job_compute c
-            LEFT JOIN company_ou ou ON c.company_ou_id = ou.company_ou_id
+            LEFT JOIN workspace ou ON c.workspace_id = ou.workspace_id
         """).fetchall()
 
     docs = []
@@ -153,7 +153,7 @@ def _fetch_compute_resource_docs() -> List[RagDoc]:
             text=(
                 f"Compute Resource: {r['compute_name']} (ID: {r['compute_id']})\n"
                 f"Type: {r['compute_type']}\n"
-                f"Owned by OU: {r['ou_name']} ({r['company_ou_id']})\n"
+                f"Owned by OU: {r['ou_name']} ({r['workspace_id']})\n"
                 f"Cost Center: {r['cost_center_code']}"
             ),
             metadata={
@@ -161,7 +161,7 @@ def _fetch_compute_resource_docs() -> List[RagDoc]:
                 "compute_id": r["compute_id"],
                 "compute_name": r["compute_name"],
                 "compute_type": r["compute_type"],
-                "company_ou_id": r["company_ou_id"],
+                "workspace_id": r["workspace_id"],
                 "ou_name": r["ou_name"],
                 "cost_center_code": r["cost_center_code"],
             }
@@ -415,7 +415,7 @@ def _fetch_query_docs(limit=300) -> List[RagDoc]:
                 q.error_message,
                 u.name AS user_name,
                 u.department,
-                u.company_ou_id
+                u.workspace_id
             FROM sql_query_history q
             LEFT JOIN users_lookup u ON q.user_id = u.user_id
             ORDER BY q.start_time DESC
@@ -428,7 +428,7 @@ def _fetch_query_docs(limit=300) -> List[RagDoc]:
             f"Query ID: {r['query_id']}",
             f"User: {r['user_name']} ({r['user_id']})",
             f"Department: {r['department']}",
-            f"Org Unit: {r['company_ou_id']}",
+            f"Org Unit: {r['workspace_id']}",
             f"Parent Compute: {r['parent_id']} (SKU: {r['warehouse_sku']})",
             f"Start: {r['start_time']}",
             f"Duration: {r['duration_ms']} ms",
@@ -446,7 +446,7 @@ def _fetch_query_docs(limit=300) -> List[RagDoc]:
                 "type": "query",
                 "query_id": r["query_id"],
                 "user_id": r["user_id"],
-                "company_ou_id": r["company_ou_id"],
+                "workspace_id": r["workspace_id"],
                 "parent_id": r["parent_id"],
                 "duration_ms": r["duration_ms"],
             }
@@ -461,8 +461,8 @@ def _fetch_query_docs(limit=300) -> List[RagDoc]:
 def build_usage_rag_docs() -> List[RagDoc]:
     docs: List[RagDoc] = []
 
-    company_docs = _fetch_company_ou_docs()
-    print(f"[DEBUG] company_ou docs: {len(company_docs)}")
+    company_docs = _fetch_workspace_docs()
+    print(f"[DEBUG] workspace docs: {len(company_docs)}")
     docs.extend(company_docs)
 
     user_docs = _fetch_user_docs()

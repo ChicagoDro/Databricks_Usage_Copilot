@@ -39,18 +39,18 @@ SELECT date FROM dates;
 -- --------------------------------------------------------------------------------------
 
 -- Clear existing data (in case the script is run multiple times)
-DELETE FROM company_ou;
+DELETE FROM workspace;
 DELETE FROM users_lookup;
 DELETE FROM instance_pools;
 DELETE FROM non_job_compute;
 DELETE FROM jobs;
 
-INSERT INTO company_ou
+INSERT INTO workspace
 SELECT t1.ou_id, 'Chicago Cola Co.', 'CCOL-1234',
        'Leading beverage distributor, heavily focused on optimizing supply chain and finance reporting systems.'
 FROM constants t1;
 
-INSERT INTO users_lookup (user_id, name, company_ou_id, department)
+INSERT INTO users_lookup (user_id, name, workspace_id, department)
 SELECT 'U-ALICE',   'Alice',   t1.ou_id, 'Finance'      FROM constants t1 UNION ALL 
 SELECT 'U-BOB',     'Bob',     t1.ou_id, 'Supply Chain' FROM constants t1 UNION ALL 
 SELECT 'U-CHARLIE', 'Charlie', t1.ou_id, 'HR'           FROM constants t1 UNION ALL 
@@ -61,7 +61,7 @@ SELECT 'U-SYSTEM',  'System',  t1.ou_id, 'System'       FROM constants t1;
 INSERT INTO instance_pools (instance_pool_id, pool_name, pool_instance_type, min_size, max_size, auto_termination_mins) VALUES
     ('POOL-DBS-L', 'Low Latency Worker Pool', 'i3.xlarge', 2, 5, 0);
 
-INSERT INTO non_job_compute (compute_id, compute_name, compute_type, company_ou_id)
+INSERT INTO non_job_compute (compute_id, compute_name, compute_type, workspace_id)
 SELECT 'APC-001', 'Logistics Analytics APC', 'APC_CLUSTER',   (SELECT ou_id FROM constants)
 UNION ALL SELECT 'APC-002', 'Finance Reporting APC',  'APC_CLUSTER',   (SELECT ou_id FROM constants)
 UNION ALL SELECT 'WH-1',    'Finance SQL Warehouse',  'SQL_WAREHOUSE', (SELECT ou_id FROM constants)
@@ -70,7 +70,7 @@ UNION ALL SELECT 'WH-3',    'HR SQL Warehouse',       'SQL_WAREHOUSE', (SELECT o
 UNION ALL SELECT 'WH-4',    'Logistics SQL Warehouse','SQL_WAREHOUSE', (SELECT ou_id FROM constants)
 UNION ALL SELECT 'WH-5',    'ML SQL Warehouse',       'SQL_WAREHOUSE', (SELECT ou_id FROM constants);
 
-INSERT INTO jobs (job_id, company_ou_id, job_name, description, tags)
+INSERT INTO jobs (job_id, workspace_id, job_name, description, tags)
 -- Note: ARRAY('...') is replaced with json_array() for JSON text storage
 SELECT 'J-FIN-DLY', (SELECT ou_id FROM constants), 'Financial Report Aggregation',
        'Daily job for calculating month-end revenue figures.', json_array('Finance', 'Critical')

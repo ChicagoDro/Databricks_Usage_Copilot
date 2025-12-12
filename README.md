@@ -53,7 +53,7 @@ This database is generated from:
 
 | Table               | Description                                                  |
 | ------------------- | ------------------------------------------------------------ |
-| `company_ou`        | Organizational units (cost centers)                          |
+| `workspace`        | Organizational units (cost centers)                          |
 | `users_lookup`      | Users, departments, and OU membership                        |
 | `jobs`              | Scheduled Databricks jobs with metadata + tags               |
 | `job_runs`          | Daily executions of jobs with status + cluster settings      |

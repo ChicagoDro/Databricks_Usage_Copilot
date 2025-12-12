@@ -444,7 +444,7 @@ class DatabricksUsageAssistant:
             target_type = "compute_resource"
             # We'll filter by compute_type in the loop
         elif entity_type == "org_unit":
-            target_type = "company_ou"
+            target_type = "workspace"
             label_field = "name"
 
         # If we don't recognize the type, just bail out with a simple message
@@ -691,7 +691,7 @@ class DatabricksUsageAssistant:
 
         # Desired order for readability
         type_order = [
-            "company_ou",
+            "workspace",
             "job",
             "job_run",
             "compute_usage",

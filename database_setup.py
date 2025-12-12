@@ -43,9 +43,9 @@ def setup_database(db_file: str, ddl_script: str, dml_script: str):
             print("✅ DML (Data Seeding) executed and committed successfully.")
             
             # 5. Simple verification query
-            cursor.execute("SELECT count(*) FROM company_ou")
+            cursor.execute("SELECT count(*) FROM workspace")
             row_count = cursor.fetchone()[0]
-            print(f"\n✨ Verification: company_ou table contains {row_count} row(s).")
+            print(f"\n✨ Verification: workspace table contains {row_count} row(s).")
             
     except sqlite3.OperationalError as e:
         print(f"❌ Database Operation Failed: {e}")

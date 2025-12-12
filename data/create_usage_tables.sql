@@ -10,7 +10,7 @@
 CREATE TABLE IF NOT EXISTS users_lookup (
     user_id                 TEXT PRIMARY KEY NOT NULL, -- STRING -> TEXT, PRIMARY KEY declared inline
     name                    TEXT NOT NULL,
-    company_ou_id           TEXT NOT NULL, -- FOREIGN KEY linking user to the owning team.
+    workspace_id           TEXT NOT NULL, -- FOREIGN KEY linking user to the owning team.
     department              TEXT
     -- Note: Databricks style comments are kept, but no functional PRIMARY KEY constraint here
     -- Note: PRIMARY KEY constraint is declared inline above: user_id TEXT PRIMARY KEY NOT NULL
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS non_job_compute (
     compute_id              TEXT PRIMARY KEY NOT NULL,
     compute_name            TEXT NOT NULL,
     compute_type            TEXT NOT NULL, -- APC_CLUSTER or SQL_WAREHOUSE.
-    company_ou_id           TEXT -- Owning team.
+    workspace_id           TEXT -- Owning team.
 );
 
 
@@ -41,9 +41,9 @@ CREATE TABLE IF NOT EXISTS non_job_compute (
 -- Core Data Tables (1-7)
 -- --------------------------------------------------------------------------------------
 
--- Table 1: company_ou (Organizational Unit / Team)
-CREATE TABLE IF NOT EXISTS company_ou (
-    company_ou_id           TEXT PRIMARY KEY NOT NULL,
+-- Table 1: workspace (Organizational Unit / Team)
+CREATE TABLE IF NOT EXISTS workspace (
+    workspace_id           TEXT PRIMARY KEY NOT NULL,
     name                    TEXT NOT NULL,
     cost_center_code        TEXT,
     description             TEXT -- Vector Embedding Candidate.
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS company_ou (
 -- Table 2: jobs (Job Definitions)
 CREATE TABLE IF NOT EXISTS jobs (
     job_id                  TEXT PRIMARY KEY NOT NULL,
-    company_ou_id           TEXT NOT NULL, -- FOREIGN KEY linking job to the owning team.
+    workspace_id           TEXT NOT NULL, -- FOREIGN KEY linking job to the owning team.
     job_name                TEXT NOT NULL,
     description             TEXT, -- Vector Embedding Candidate.
     tags                    TEXT -- ARRAY<STRING> changed to TEXT (JSON array string).
