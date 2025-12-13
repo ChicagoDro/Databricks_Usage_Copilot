@@ -7,13 +7,13 @@
 CREATE TEMP TABLE IF NOT EXISTS constants (
     start_date      TEXT, -- YYYY-MM-DD
     end_date        TEXT, -- YYYY-MM-DD
-    ou_id           TEXT,
+    workspace_id           TEXT,
     cost_per_dbu    REAL
 );
 
 -- Insert constants
 DELETE FROM constants;
-INSERT INTO constants (start_date, end_date, ou_id, cost_per_dbu)
+INSERT INTO constants (start_date, end_date, workspace_id, cost_per_dbu)
 VALUES ('2025-11-28', '2025-12-11', 'OU-CHICOLA', 0.40);
 
 -- Helper table used for generating daily dates between start_date and end_date
@@ -46,41 +46,41 @@ DELETE FROM non_job_compute;
 DELETE FROM jobs;
 
 INSERT INTO workspace
-SELECT t1.ou_id, 'Chicago Cola Co.', 'CCOL-1234',
+SELECT t1.workspace_id, 'Chicago Cola Co.', 'CCOL-1234',
        'Leading beverage distributor, heavily focused on optimizing supply chain and finance reporting systems.'
 FROM constants t1;
 
 INSERT INTO users_lookup (user_id, name, workspace_id, department)
-SELECT 'U-ALICE',   'Alice',   t1.ou_id, 'Finance'      FROM constants t1 UNION ALL 
-SELECT 'U-BOB',     'Bob',     t1.ou_id, 'Supply Chain' FROM constants t1 UNION ALL 
-SELECT 'U-CHARLIE', 'Charlie', t1.ou_id, 'HR'           FROM constants t1 UNION ALL 
-SELECT 'U-DAVID',   'David',   t1.ou_id, 'Logistics'    FROM constants t1 UNION ALL 
-SELECT 'U-EMILY',   'Emily',   t1.ou_id, 'Data Science' FROM constants t1 UNION ALL
-SELECT 'U-SYSTEM',  'System',  t1.ou_id, 'System'       FROM constants t1;
+SELECT 'U-ALICE',   'Alice',   t1.workspace_id, 'Finance'      FROM constants t1 UNION ALL 
+SELECT 'U-BOB',     'Bob',     t1.workspace_id, 'Supply Chain' FROM constants t1 UNION ALL 
+SELECT 'U-CHARLIE', 'Charlie', t1.workspace_id, 'HR'           FROM constants t1 UNION ALL 
+SELECT 'U-DAVID',   'David',   t1.workspace_id, 'Logistics'    FROM constants t1 UNION ALL 
+SELECT 'U-EMILY',   'Emily',   t1.workspace_id, 'Data Science' FROM constants t1 UNION ALL
+SELECT 'U-SYSTEM',  'System',  t1.workspace_id, 'System'       FROM constants t1;
 
 INSERT INTO instance_pools (instance_pool_id, pool_name, pool_instance_type, min_size, max_size, auto_termination_mins) VALUES
     ('POOL-DBS-L', 'Low Latency Worker Pool', 'i3.xlarge', 2, 5, 0);
 
 INSERT INTO non_job_compute (compute_id, compute_name, compute_type, workspace_id)
-SELECT 'APC-001', 'Logistics Analytics APC', 'APC_CLUSTER',   (SELECT ou_id FROM constants)
-UNION ALL SELECT 'APC-002', 'Finance Reporting APC',  'APC_CLUSTER',   (SELECT ou_id FROM constants)
-UNION ALL SELECT 'WH-1',    'Finance SQL Warehouse',  'SQL_WAREHOUSE', (SELECT ou_id FROM constants)
-UNION ALL SELECT 'WH-2',    'Supply Chain SQL Warehouse', 'SQL_WAREHOUSE', (SELECT ou_id FROM constants)
-UNION ALL SELECT 'WH-3',    'HR SQL Warehouse',       'SQL_WAREHOUSE', (SELECT ou_id FROM constants)
-UNION ALL SELECT 'WH-4',    'Logistics SQL Warehouse','SQL_WAREHOUSE', (SELECT ou_id FROM constants)
-UNION ALL SELECT 'WH-5',    'ML SQL Warehouse',       'SQL_WAREHOUSE', (SELECT ou_id FROM constants);
+SELECT 'APC-001', 'Logistics Analytics APC', 'APC_CLUSTER',   (SELECT workspace_id FROM constants)
+UNION ALL SELECT 'APC-002', 'Finance Reporting APC',  'APC_CLUSTER',   (SELECT workspace_id FROM constants)
+UNION ALL SELECT 'WH-1',    'Finance SQL Warehouse',  'SQL_WAREHOUSE', (SELECT workspace_id FROM constants)
+UNION ALL SELECT 'WH-2',    'Supply Chain SQL Warehouse', 'SQL_WAREHOUSE', (SELECT workspace_id FROM constants)
+UNION ALL SELECT 'WH-3',    'HR SQL Warehouse',       'SQL_WAREHOUSE', (SELECT workspace_id FROM constants)
+UNION ALL SELECT 'WH-4',    'Logistics SQL Warehouse','SQL_WAREHOUSE', (SELECT workspace_id FROM constants)
+UNION ALL SELECT 'WH-5',    'ML SQL Warehouse',       'SQL_WAREHOUSE', (SELECT workspace_id FROM constants);
 
 INSERT INTO jobs (job_id, workspace_id, job_name, description, tags)
 -- Note: ARRAY('...') is replaced with json_array() for JSON text storage
-SELECT 'J-FIN-DLY', (SELECT ou_id FROM constants), 'Financial Report Aggregation',
+SELECT 'J-FIN-DLY', (SELECT workspace_id FROM constants), 'Financial Report Aggregation',
        'Daily job for calculating month-end revenue figures.', json_array('Finance', 'Critical')
-UNION ALL SELECT 'J-SPLY-ETL', (SELECT ou_id FROM constants), 'Supply Chain Data ETL',
+UNION ALL SELECT 'J-SPLY-ETL', (SELECT workspace_id FROM constants), 'Supply Chain Data ETL',
        'Extracts and transforms raw sensor data for logistics dashboard.', json_array('Logistics', 'Fleet')
-UNION ALL SELECT 'J-HR-DASH', (SELECT ou_id FROM constants), 'HR Dashboard Prep',
+UNION ALL SELECT 'J-HR-DASH', (SELECT workspace_id FROM constants), 'HR Dashboard Prep',
        'Prepares aggregated employee data using a dedicated pool.', json_array('HR', 'Pooled')
-UNION ALL SELECT 'J-LOGI-OPT', (SELECT ou_id FROM constants), 'Logistics Optimizer',
+UNION ALL SELECT 'J-LOGI-OPT', (SELECT workspace_id FROM constants), 'Logistics Optimizer',
        'Autoscaling job for calculating optimal shipping routes.', json_array('Logistics', 'Autoscaling', 'Optimization')
-UNION ALL SELECT 'J-PROD-ML', (SELECT ou_id FROM constants), 'Production ML Training',
+UNION ALL SELECT 'J-PROD-ML', (SELECT workspace_id FROM constants), 'Production ML Training',
        'Daily training of the ML product recommendation model.', json_array('DataScience', 'Critical', 'Autoscaling');
 
 

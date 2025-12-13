@@ -86,7 +86,7 @@ def _build_users(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
 
     for r in rows:
         user_id = f"user::{r['user_id']}"
-        ou_id = f"ou::{r['workspace_id']}"
+        workspace_id = f"ou::{r['workspace_id']}"
 
         _add_node(
             nodes,
@@ -100,9 +100,9 @@ def _build_users(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
             },
         )
         # USER -> OU (BELONGS_TO)
-        _add_edge(edges, user_id, ou_id, "BELONGS_TO")
+        _add_edge(edges, user_id, workspace_id, "BELONGS_TO")
         # OU -> USER (HAS_USER) [reverse edge for easier parent->child traversal]
-        _add_edge(edges, ou_id, user_id, "HAS_USER")
+        _add_edge(edges, workspace_id, user_id, "HAS_USER")
 
 
 def _build_jobs(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
@@ -119,7 +119,7 @@ def _build_jobs(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
 
     for r in rows:
         job_id = f"job::{r['job_id']}"
-        ou_id = f"ou::{r['workspace_id']}"
+        workspace_id = f"ou::{r['workspace_id']}"
 
         _add_node(
             nodes,
@@ -134,9 +134,9 @@ def _build_jobs(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
             },
         )
         # JOB -> OU (OWNED_BY)
-        _add_edge(edges, job_id, ou_id, "OWNED_BY")
+        _add_edge(edges, job_id, workspace_id, "OWNED_BY")
         # OU -> JOB (HAS_JOB) [reverse edge for easier parent->child traversal]
-        _add_edge(edges, ou_id, job_id, "HAS_JOB")
+        _add_edge(edges, workspace_id, job_id, "HAS_JOB")
 
 
 def _build_compute_resources(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
@@ -152,7 +152,7 @@ def _build_compute_resources(nodes: Dict[str, GraphNode], edges: List[GraphEdge]
 
     for r in rows:
         cid = f"compute::{r['compute_id']}"
-        ou_id = f"ou::{r['workspace_id']}"
+        workspace_id = f"ou::{r['workspace_id']}"
 
         _add_node(
             nodes,
@@ -166,9 +166,9 @@ def _build_compute_resources(nodes: Dict[str, GraphNode], edges: List[GraphEdge]
             },
         )
         # COMPUTE_RESOURCE -> OU (OWNED_BY)
-        _add_edge(edges, cid, ou_id, "OWNED_BY")
+        _add_edge(edges, cid, workspace_id, "OWNED_BY")
         # OU -> COMPUTE_RESOURCE (HAS_COMPUTE) [reverse edge]
-        _add_edge(edges, ou_id, cid, "HAS_COMPUTE")
+        _add_edge(edges, workspace_id, cid, "HAS_COMPUTE")
 
 
 def _build_job_runs(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:

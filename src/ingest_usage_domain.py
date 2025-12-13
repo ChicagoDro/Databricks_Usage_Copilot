@@ -461,9 +461,9 @@ def _fetch_query_docs(limit=300) -> List[RagDoc]:
 def build_usage_rag_docs() -> List[RagDoc]:
     docs: List[RagDoc] = []
 
-    company_docs = _fetch_workspace_docs()
-    print(f"[DEBUG] workspace docs: {len(company_docs)}")
-    docs.extend(company_docs)
+    workspace_docs = _fetch_workspace_docs()
+    print(f"[DEBUG] workspace docs: {len(workspace_docs)}")
+    docs.extend(workspace_docs)
 
     user_docs = _fetch_user_docs()
     print(f"[DEBUG] user docs: {len(user_docs)}")
