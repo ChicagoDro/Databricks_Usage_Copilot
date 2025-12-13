@@ -68,18 +68,41 @@ def render_action_chips(report, sel: SelectionLike) -> None:
     st.markdown(
         """
         <style>
+        /* Base button container */
+        div[data-testid="stButton"] {
+            width: 100%;
+        }
+
+        /* Actual button */
         div[data-testid="stButton"] > button {
+            width: 100%;
+
             border-radius: 999px;
-            padding: 0.25rem 0.75rem;
-            margin: 0.15rem 0.25rem 0.15rem 0;
+            padding: 0.30rem 0.65rem;
+            margin: 0.15rem 0;
+
             border: 1px solid rgba(49, 51, 63, 0.25);
-            font-size: 0.85rem;
-            white-space: nowrap;
+            background-color: rgba(240, 242, 246, 0.6);
+
+            font-size: 0.78rem;     /* smaller text */
+            line-height: 1.05rem;   /* tight vertical spacing */
+            font-weight: 500;
+
+            white-space: normal !important;  /* allow wrapping */
+            height: auto !important;         /* grow vertically */
+            text-align: center;
+        }
+
+        /* Hover / focus polish */
+        div[data-testid="stButton"] > button:hover {
+            background-color: rgba(240, 242, 246, 0.9);
+            border-color: rgba(49, 51, 63, 0.45);
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
+
 
     chips = report.build_action_chips(sel, st.session_state.filters)
     if not chips:
