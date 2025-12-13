@@ -13,7 +13,8 @@ Based in Chicago, IL.
 
 # Databricks Usage Copilot
 
-A fully-featured **enterprise Retrieval-Augmented Generation (RAG)** system that turns Databricks-style platform usage telemetry into an interactive AI assistant.
+An AI-powered analytics copilot for exploring Databricks usage, cost, and reliability.
+This project combines **SQL-backed analytics, GraphRAG, and deterministic LLM prompts** to deliver explainable, decision-ready insights — without relying on guess-driven chat interactions.
 
 This project ingests structured Databricks-like operational data into:
 
@@ -23,15 +24,83 @@ This project ingests structured Databricks-like operational data into:
 - A **Graph-aware orchestrator** that performs graph expansion + semantic retrieval  
 - A **Streamlit UI** + **CLI** that show both the answer *and* “how the AI reasoned”
 
-The result is an **AI copilot** capable of answering questions such as:
+### 🎯 Project Goals
 
-- “Why did this job cost so much yesterday?”  
-- “Show me SQL queries contributing most to Finance warehouse spend.”  
-- “What spot evictions have impacted ML workloads recently?”  
-- “Which org unit owns the compute driving last week’s DBU spike?”  
-- “Which jobs need optimizing based on total cost?”  
+Provide clear visibility into Databricks usage and cost drivers
+Enable reliable drill-downs into jobs, compute types, and execution behavior
+Demonstrate how AI can explain data instead of inventing it
+Showcase production-style patterns for enterprise AI copilots
 
-This repo demonstrates a **production-style architecture** for enterprise LLM applications built on **RAG + graphs + orchestration**.
+
+---
+
+## Core Design Principle
+
+> **Don’t let the model guess what the user meant.**  
+> Use **deterministic reports** to define the question, and use the LLM to explain the result with context.
+
+This is a different (and more enterprise-friendly) UX than “chat-first RAG”:
+
+- **Reports** define “what we’re looking at”
+- **Clicks** define “what we want explained”
+- **Prompts** are deterministic and repeatable
+- **LLM** provides narrative, root-cause hypotheses, and next actions
+
+---
+
+## Deterministic Reports (Not Chat Guessing)
+
+Each report is powered by explicit SQL and a known semantic meaning.  
+The chart/table is the interface; the AI is the commentary layer.
+
+Example reports (current + planned):
+
+- **Job Cost** — stacked horizontal bars by job, segmented by spot vs on-demand ratio
+- **Total Cost by Compute Type** — recommended as a **sorted bar chart** (not a pie chart)
+- **Pareto Job Cost Concentration** — cumulative contribution curve / Pareto view
+- **Spot Risk Exposure by Job** — rank jobs by spot ratio + eviction signals
+
+---
+
+## Deterministic Action Chips (Key Differentiator)
+
+Every meaningful data point in a report produces deterministic “action chips” (buttons) that trigger a known prompt, for example:
+
+- Clicking a job bar → `Tell me more about job_id = J-...`
+- Clicking a compute type → `Explain spend for compute_type = ...`
+- Clicking “top driver” → `Explain why this driver is expensive and what to optimize`
+
+If a visualization itself can’t host clickable links cleanly, chips are rendered below the chart as “drill actions” for the visible marks.
+
+---
+
+## One-Diagram Overview: Report → Selection → Prompt → Answer
+
+```text
+┌───────────────────────┐
+│  Report (SQL query)    │
+│  Chart / Table / KPI   │
+└───────────┬───────────┘
+            │ click a mark / row / chip
+            ▼
+┌───────────────────────┐
+│ Selection → Context     │
+│ entity_type + entity_id │
+└───────────┬───────────┘
+            │ deterministic template
+            ▼
+┌───────────────────────┐
+│ Prompt Builder          │
+│ "Tell me more about ...│
+│  include X, Y, Z"       │
+└───────────┬───────────┘
+            │
+            ▼
+┌───────────────────────┐
+│ LLM Commentary Answer   │
+│ + optional debug panel  │
+└───────────────────────┘
+````
 
 ---
 
@@ -81,381 +150,60 @@ This makes it ideal for demonstrating:
 
 ---
 
-## 🕸️ Architecture Overview (GraphRAG + UI)
+## 🕸️ Architecture Overview (Graph + Reports + UI)
 
 At a high level:
 
 1. **SQLite DB** holds structured Databricks usage data.
-2. `ingest_usage_domain.py` reads the DB and turns rows into **RAG documents**.
-3. `ingest_embed_index.py` embeds those docs and stores them in a **FAISS index**.
-4. `graph_model.py` builds **nodes and edges** representing org structure and workload relationships.
-5. `graph_retriever.py`:
+2. The **report registry** defines each report:
 
-   * Uses vector search to find **anchor documents** for a query
-   * Expands a **subgraph** around those anchors using BFS
-   * Collects all relevant docs for context
-6. `chat_orchestrator.py`:
+   * SQL query
+   * visualization type
+   * which columns become “entities”
+   * chip templates for deterministic prompts
+3. The **Streamlit dashboard** renders the chosen report in the visualization pane.
+4. User clicks a mark/row/chip → the system builds a deterministic prompt and executes it.
+5. The **LLM** returns commentary in the always-present commentary pane.
+6. If debug mode is enabled, the UI shows the underlying SQL, prompt, and any additional reasoning artifacts.
 
-   * Classifies the **question type** (global aggregate, global top-N, local explanation, etc.)
-   * Routes to **deterministic graph logic** when appropriate (e.g., “how many jobs?”, “which jobs need optimizing?”)
-   * Otherwise calls the **GraphRAG retriever + LLM**
-   * Returns an answer, a **graph explanation**, and the **LLM prompt + context** used
-7. `app.py` (Streamlit UI):
-
-   * Renders a chat interface
-   * Shows an expandable **“How I reasoned”** panel with:
-
-     * Graph subgraph summary
-     * The prompt sent to the LLM
-     * The context passed into the prompt
-
-### Diagram
+### Consolidated System Diagram
 
 ```text
-                  ┌────────────────────────┐
-                  │   SQLite Usage DB      │
-                  │ (jobs, runs, usage,    │
-                  │  events, queries, OU)  │
-                  └───────────┬────────────┘
-                              │ SQL (SELECT)
-                 ┌────────────┴────────────┐
-                 │ ingest_usage_domain.py  │
-                 │  - Rows → RAG docs      │
-                 └────────────┬────────────┘
-                              │ Documents
-                 ┌────────────┴────────────┐
-                 │ ingest_embed_index.py   │
-                 │  - Embeddings           │
-                 │  - FAISS index          │
-                 └────────────┬────────────┘
-                              │ Vector search
-                ┌─────────────┴─────────────┐
-                │   graph_model.py          │
-                │  - Nodes & edges          │
-                │  - Adjacency (BFS)        │
-                └─────────────┬─────────────┘
-                              │ node_ids
-                ┌─────────────┴─────────────┐
-                │   graph_retriever.py      │
-                │  - Vector anchors (FAISS) │
-                │  - Graph expansion (BFS)  │
-                │  - Context assembly       │
-                └─────────────┬─────────────┘
-                              │ context docs
-                ┌─────────────┴──────────────┐
-                │   chat_orchestrator.py     │
-                │  - Question classifier     │
-                │  - Global aggregates      │
-                │  - GraphRAG + LLM          │
-                │  - Debug prompt + context  │
-                └─────────────┬──────────────┘
-                              │ answer + debug
-                ┌─────────────┴──────────────┐
-                │   Streamlit UI (app.py)    │
-                │  - Chat                    │
-                │  - "How I reasoned" panel  │
-                └────────────────────────────┘
+                 ┌──────────────────────────┐
+                 │   SQLite Usage DB         │
+                 │ (jobs, runs, usage, ...)  │
+                 └───────────┬──────────────┘
+                             │ SQL
+                             ▼
+                 ┌──────────────────────────┐
+                 │  Reports Registry         │
+                 │  - SQL per report         │
+                 │  - viz config             │
+                 │  - entity mapping         │
+                 │  - chip templates         │
+                 └───────────┬──────────────┘
+                             │
+                             ▼
+┌──────────────────────────────────────────────────────────────┐
+│                    Streamlit Dashboard                        │
+│  Sidebar: Report links + Debug toggle                         │
+│                                                              │
+│  ┌─────────────────────┐   ┌──────────────────────────────┐  │
+│  │ Visualization Pane   │   │ Commentary Pane (LLM)         │  │
+│  │ (chart/table/KPI)    │   │ "Tell me more about ..."      │  │
+│  │ click → context      │   │ + freeform prompt box         │  │
+│  └──────────┬──────────┘   └───────────┬───────────────────┘  │
+│             │ selection                 │ deterministic prompt  │
+│             ▼                           ▼                       │
+│      ┌───────────────────────────────────────────────┐         │
+│      │ Prompt Builder + Context Assembler             │         │
+│      └──────────────────────┬────────────────────────┘         │
+│                             ▼                                  │
+│                      ┌──────────────┐                          │
+│                      │      LLM      │                          │
+│                      └──────────────┘                          │
+└──────────────────────────────────────────────────────────────┘
 ```
-
----
-
-## 🧭 Graph vs. Vector Routing
-
-The assistant doesn’t treat every question the same.  
-Some questions are best answered by **direct graph aggregation**, others by **GraphRAG** (vector + graph), and a few fall back to **plain vector RAG**.
-
-At a high level:
-
-- **Vector search** answers:  
-  > “What are we talking about?”  
-  (Find the most relevant nodes/docs.)
-
-- **Graph traversal / aggregation** answers:  
-  > “What else is related?” and “How do we compute totals, rankings, or coverage across the whole environment?”
-
-### 🔀 Routing Strategies
-
-The `DatabricksUsageAssistant` routes questions through three main paths:
-
-1. **Global Graph Aggregates (Graph-only, no LLM reasoning needed)**
-   - Examples:
-     - “How many jobs are there?”
-     - “How many users do we have?”
-   - Behavior:
-     - Skip vector search
-     - Directly inspect the graph (count nodes by type)
-     - Return a deterministic answer like:
-       > “There are 5 jobs in this environment…”
-
-2. **Global Usage & Top-N (Graph Aggregation + LLM Copyediting)**
-   - Examples:
-     - “Tell me about my Databricks usage.”
-     - “Give me a summary of my job usage.”
-     - “Which jobs need optimizing?”
-     - “Top 3 most expensive jobs.”
-   - Behavior:
-     - Skip GraphRAG neighborhood
-     - Traverse the graph:
-       - `compute_usage` → `job_run` → `job`
-     - Aggregate `cost_usd` per job
-     - Rank, compute shares of total spend, etc.
-     - Use the LLM to turn those numbers into a readable explanation.
-
-3. **GraphRAG (Vector + Graph Expansion + LLM)**
-   - Examples:
-     - “Why is the HR Dashboard Prep job expensive?”
-     - “What happened around the last eviction in Logistics?”
-   - Behavior:
-     - Use **vector search** over FAISS to find **anchor docs**
-       (e.g., job J-HR-DASH, its runs, a usage record).
-     - Expand a **subgraph** around those anchors with BFS:
-       - job → runs → usage → events → evictions → user
-     - Render that neighborhood into a context string.
-     - Feed context + question into the LLM.
-     - Return the answer and a “How I reasoned” explanation.
-
-If the classifier can’t confidently categorize the question, the system defaults to the **GraphRAG** path.
-
----
-
-### 🧠 Routing Flow Diagram
-
-```text
-               ┌────────────────────────────────────────┐
-               │           User Question                │
-               └────────────────────────────────────────┘
-                                 │
-                                 ▼
-                    ┌─────────────────────────┐
-                    │  Classifier + Heuristics│
-                    │  (intent, entity_type)  │
-                    └───────────┬─────────────┘
-                                │
-          ┌─────────────────────┼─────────────────────┐
-          │                     │                     │
-          ▼                     ▼                     ▼
- ┌─────────────────┐   ┌──────────────────────┐  ┌──────────────────────┐
- │ Global Aggregate│   │ Global Usage / Top-N │  │   Local / Other      │
- │ (counts)        │   │ (cost, ranking)      │  │ (explanations, why?) │
- └──────┬──────────┘   └─────────┬────────────┘  └──────────┬───────────┘
-        │                        │                         │
-        ▼                        ▼                         ▼
- ┌───────────────┐       ┌────────────────┐      ┌────────────────────────┐
- │ Graph-only    │       │ Graph-only     │      │  GraphRAG              │
- │ (node counts) │       │ aggregates     │      │  1) Vector anchors     │
- │               │       │ (cost by job,  │      │  2) BFS subgraph       │
- │ e.g. jobs,    │       │  top-N jobs)   │      │  3) Context + LLM      │
- │ users, OUs    │       └──────┬─────────┘      └──────────┬─────────────┘
- └──────┬────────┘              │                           │
-        │                        │                           │
-        ▼                        ▼                           ▼
- ┌─────────────────┐   ┌───────────────────────┐   ┌────────────────────┐
- │ Deterministic   │   │ Deterministic + LLM   │   │ LLM Answer          │
- │ answer string   │   │ narrative (optional)  │   │ (with graph context)│
- └────────┬────────┘   └───────────┬───────────┘   └─────────┬──────────┘
-          │                        │                         │
-          └──────────────┬─────────┴─────────────┬───────────┘
-                         ▼                       ▼
-             ┌───────────────────┐   ┌─────────────────────────┐
-             │  Answer           │   │ "How I reasoned" panel  │
-             │                   │   │ - Subgraph summary      │
-             │                   │   │ - Prompt + context      │
-             └───────────────────┘   └─────────────────────────┘
-````
-
-This routing lets the assistant:
-
-* Use **graphs** where structure matters (counts, cost aggregation, relationships).
-* Use **vector search + graph expansion** where semantics matter (“why did this job behave this way?”).
-* Stay **transparent**, thanks to the “How I reasoned” panel exposing the graph, prompt, and context.
-
-```
-```
-
----
-
-## 🧠 Why This Architecture?
-
-### 1. Enterprise telemetry is a graph
-
-Databricks usage is naturally modeled as:
-
-* Org units → users
-* Users → jobs & queries
-* Jobs → job runs → compute usage
-* Usage → events → evictions
-
-Answering **“why”**, **“who”**, and **“what else is related”** requires following **relationships**, not just matching text.
-
-### 2. Pure vector RAG struggles on structural questions
-
-Example:
-
-> “Why did job J-LOGI-OPT fail yesterday?”
-
-Pure vector search might miss:
-
-* The specific **job run** that failed
-* The **eviction event** tied to that run
-* The **compute usage** record that shows spot capacity
-* The **queries** that ran shortly before
-
-GraphRAG ensures those nodes are traversed and included in context.
-
-### 3. Hybrid = semantic + structural power
-
-* **Vector search** → finds *what the user is talking about*
-* **Graph traversal** → finds *everything structurally related*
-* **LLM** → synthesizes an answer with full context
-
-This is the pattern you’d want for a real **FinOps / observability / governance copilot**.
-
-### 4. Transparent reasoning (“How I reasoned”)
-
-Each answer includes:
-
-* A **graph explanation**: what node types were used, how many, and some example nodes
-* The **exact prompt** sent to the LLM (system prompt + context + user question)
-* The **context** (rendered docs from the graph neighborhood)
-
-This is perfect for:
-
-* Debugging “why did it only talk about one job?”
-* Showing platform teams how the AI arrived at its answer
-* Teaching others how GraphRAG flows work
-
----
-
-## 🧩 Design Challenges & How We Solved Them
-
-This project isn’t just a happy path — it documents some **real graph/RAG issues** and how we fixed them.
-
-### 1. Parent–Child Edge Direction
-
-**Problem:**
-Initially, graph edges were modeled only **child → parent**:
-
-* `job_run` → `job` (`RUN_OF`)
-* `compute_usage` → `job_run` (`USAGE_OF_JOB_RUN`)
-* `event` → `usage` (`ON_USAGE`)
-
-This is natural from a “this thing belongs to that” perspective, but made it hard to answer questions like:
-
-> “Summarize usage for each job.”
-
-Because from the **job** node’s perspective, there were no outgoing edges to its runs/usages.
-
-**Fix: Reverse “HAS_*” edges**
-
-In `graph_model.py` we kept the original edges but added **reverse parent → child** edges:
-
-* `job` → `job_run` (`HAS_RUN`)
-* `job_run` → `compute_usage` (`HAS_USAGE`)
-* `usage` → `event` (`HAS_EVENT`)
-* `user` → `query` (`HAS_QUERY`)
-
-Now we can easily traverse **from a job** down to all of its runs → usage → events without doing expensive reverse lookups.
-
-> **Lesson:** For GraphRAG, it’s often worth maintaining **both directions** (semantic: “RUN_OF”, ergonomic: “HAS_RUN”).
-
----
-
-### 2. “Why am I only seeing one job?” (Routing & Coverage)
-
-**Problem:**
-For global-sounding questions like:
-
-> “give me a summary of my job usage”
-
-the retriever was:
-
-1. Doing a semantic search on that text.
-2. Picking a single **anchor job** (e.g., `J-HR-DASH`) and its neighborhood.
-3. Building context entirely around that one job.
-
-So the LLM answer looked reasonable, but it only talked about **one job**, not **all five**.
-
-**Fix: Question-type routing in `chat_orchestrator.py`**
-
-We introduced a **classifier + heuristics** that route certain question types away from the pure GraphRAG path and into **deterministic graph-based logic**:
-
-* **Global aggregates**
-
-  * Intent: `"global_aggregate"`
-  * Examples:
-
-    * “How many jobs are there?”
-    * “How many users do we have?”
-  * Solution: `_answer_global_aggregate` → counts nodes by type directly from the graph.
-
-* **Global top-N (jobs)**
-
-  * Intent: `"global_topn"` + `entity_type=="job"`
-  * Example:
-
-    * “Top 3 most expensive jobs”
-  * Solution: `_answer_global_topn_jobs` → aggregates `compute_usage.cost_usd` per job and ranks.
-
-* **Global usage overview**
-
-  * Heuristic: `_looks_like_usage_overview_question`
-  * Examples:
-
-    * “tell me about my databricks usage”
-    * “summary of my job usage”
-  * Solution: `_answer_global_usage_overview` → aggregates cost for **all jobs** and returns a full breakdown.
-
-* **Jobs needing optimization**
-
-  * Heuristic: `_looks_like_jobs_optimization_question`
-  * Example:
-
-    * “which jobs need optimizing?”
-  * Solution: `_answer_jobs_needing_optimization` → surfaces the highest-cost jobs by share of total spend.
-
-If a question matches one of these, it **never** goes down the “single anchor GraphRAG” path — it uses **all jobs** via graph aggregation.
-
-> **Lesson:** Not every question should be answered via “retrieve a neighborhood + LLM.”
-> Some are better served by **explicit graph computations**.
-
----
-
-### 3. Debugging Context & Prompt (“How I reasoned” Panel)
-
-**Problem:**
-When debugging, it wasn’t clear:
-
-* Which nodes were actually included in the subgraph
-* Which docs were sent as context
-* What prompt the LLM actually saw
-
-This made it difficult to answer:
-“Is this a retrieval issue, a graph issue, or a language-model issue?”
-
-**Fix: Rich `ChatResult` + Streamlit UI**
-
-`ChatResult` now includes:
-
-* `answer`: final LLM (or deterministic) answer
-* `context_docs`: the retrieved `Document` objects
-* `graph_explanation`: summary of node counts and sample nodes
-* `llm_prompt`: the assembled prompt text (system + context + question)
-* `llm_context`: the rendered context string
-
-In `app.py`, the Streamlit UI adds an expander:
-
-> 🔍 **How I reasoned (GraphRAG explanation)**
-
-Inside it you see:
-
-* A human-readable description of the subgraph
-* The **LLM prompt** (copy-pasteable for inspection)
-* The **context** passed to the LLM
-
-This made it immediately obvious when a “global” question was only seeing one job in the context — which pointed straight back to routing and retriever behavior instead of the DB or graph.
-
-> **Lesson:** For serious RAG/GraphRAG, invest in **debug visibility**.
-> Being able to see prompt + context + graph summary is huge.
 
 ---
 
@@ -581,11 +329,10 @@ http://localhost:8501
 
 The UI includes:
 
-* Chat window
-* Graph-aware explanations ("How I Reasoned")
-* Debug info (prompt + context, if enabled)
-
-This is the interactive Databricks Usage Copilot experience.
+* Report navigation in the sidebar
+* Visualization pane (charts/tables)
+* Commentary pane (LLM)
+* Optional debug info (SQL/prompt/context, if enabled)
 
 ---
 
@@ -643,61 +390,13 @@ After that, when you update:
 
 ## 📌 Under the Hood (What Each Step Actually Does)
 
-| Make Target  | What Happens Internally                                                                 |
-| ------------ | --------------------------------------------------------------------------------------- |
-| `make db`    | Executes Python schema builder → creates all tables → inserts all synthetic records     |
-| `make index` | Generates RAG docs → computes embeddings → builds FAISS index → stores metadata         |
-| `make app`   | Loads the FAISS index + graph → initializes routing logic → launches Streamlit frontend |
-| `make clean` | Removes SQLite DB + FAISS index folder                                                  |
-| `make all`   | `db` + `index` + `app`                                                                  |
-
----
-
-## 🧪 Tip: You Can Combine Targets
-
-Make supports chaining:
-
-```bash
-make db index
-```
-
-or:
-
-```bash
-make index app
-```
-
-or even:
-
-```bash
-make db clean   # (not recommended—it deletes the DB right after!)
-```
-
----
-
-## 💬 Example Prompts to Try
-
-### Cost / FinOps
-
-* “How many jobs are there?”
-* “Top 3 most expensive jobs.”
-* “Which jobs need optimizing based on cost?”
-* “Break down DBU consumption by org unit.”
-
-### Reliability
-
-* “What spot evictions have impacted ML jobs?”
-* “Which runs of the Finance ETL job failed and why?”
-
-### Usage Overview
-
-* “Tell me about my Databricks usage.”
-* “Give me a summary of my job usage.”
-
-### Governance / Ownership
-
-* “Which org unit owns the compute driving last week’s DBU spike?”
-* “Which users issued long-running queries yesterday?”
+| Make Target  | What Happens Internally                                                             |
+| ------------ | ----------------------------------------------------------------------------------- |
+| `make db`    | Executes Python schema builder → creates all tables → inserts all synthetic records |
+| `make index` | Generates RAG docs → computes embeddings → builds FAISS index → stores metadata     |
+| `make app`   | Loads report registry → runs report SQL → renders UI → wires click→prompt→LLM loop  |
+| `make clean` | Removes SQLite DB + FAISS index folder                                              |
+| `make all`   | `db` + `index` + `app`                                                              |
 
 ---
 
@@ -710,9 +409,9 @@ AI-Portfolio/
   requirements.txt                # dependencies
 
   data/
-    create_usage_tables.sql     # Creates Databricks Usage schema
-    seed_usage_tables.sql       # Loads sample data
-    usage_rag_data.db           # Generated SQLite DB
+    create_usage_tables.sql       # Creates Databricks Usage schema
+    seed_usage_tables.sql         # Loads sample data
+    usage_rag_data.db             # Generated SQLite DB
 
   indexes/
     usage_faiss/                  # FAISS index (created at runtime)
@@ -724,26 +423,16 @@ AI-Portfolio/
     graph_model.py                # Nodes & edges & adjacency (HAS_* edges)
     graph_retriever.py            # Graph-aware retriever (GraphRAG)
     chat_orchestrator.py          # LLM orchestration + routing + debug
-    app.py                        # Streamlit UI ("How I reasoned" panel)
+    app.py                        # Streamlit UI (reports + commentary)
+    reports/                      # Report definitions (SQL + viz + chip mapping)
+      registry.py                   # Report registry (navigation + metadata)
 ```
-
----
-
-## 🚀 Portfolio Value Statement
-
-You can honestly say:
-
-> **“I designed and implemented a GraphRAG system that models Databricks usage telemetry as both a FAISS vector index and a graph of jobs, runs, compute usage, events, evictions, and SQL queries. I debugged real-world issues like edge direction (child→parent vs parent→child) and global vs local question routing, adding reverse ‘HAS_*’ edges, explicit global aggregation paths, and a ‘How I reasoned’ panel that surfaces the exact prompt and context sent to the LLM. The result is an explainable FinOps / observability copilot that combines vector search, graph traversal, and LLM reasoning.”**
 
 ---
 
 ## 🔭 Future Enhancements
 
-* Add a **router** that sends Databricks Best Practice PDFs to hybrid RAG and usage questions to GraphRAG.
-* Integrate **LangGraph** for multi-step workflows and tools.
-* Add an **evaluation harness** (groundedness, answer quality, coverage).
-* Export the graph into **Neo4j** for large-scale graph analytics.
-* Add **graph visualization** in the UI (e.g., job → runs → usage → events view).
+* Add richer drill paths (multi-hop exploration) while staying deterministic.
+* Add evaluation harnesses (report accuracy checks, LLM groundedness checks).
+* Export the in-memory graph into **Neo4j** for large-scale graph analytics.
 
-```
-```
