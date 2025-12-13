@@ -191,7 +191,7 @@ SELECT
     t1.job_run_id        AS compute_usage_id,
     t1.job_run_id        AS parent_id,
     'JOB_RUN'            AS parent_type,
-    'STANDARD_ALL_PURPOSE_COMPUTE' AS compute_sku,
+    'STANDARD_JOB_COMPUTE' AS compute_sku,
     CAST(
         t1.dbus_per_minute * (t1.duration_ms / 60000.0) * (t1.min_nodes + t1.max_nodes) / 2.0
         AS REAL
@@ -230,7 +230,34 @@ SELECT
     (CAST(abs(random() % 50) + 500 AS INTEGER)) * (SELECT cost_per_dbu FROM constants) AS total_cost,
     (0.9 + (random() / 9223372036854775807.0 * 0.1)) * 0.70 AS avg_cpu_utilization,
     256.0 AS avg_memory_gb,
-    0     AS peak_concurrent_users,
+    3     AS peak_concurrent_users,
+    1     AS is_production,
+    T1.date AS usage_date
+FROM apc_usage_data T1;
+
+-- Insert into compute_usage (APC Clusters)
+CREATE TEMP VIEW apc_usage_data AS
+SELECT 
+    T1.compute_id,
+    T1.compute_type,
+    ds.date
+FROM date_series ds
+CROSS JOIN non_job_compute T1
+WHERE T1.compute_type = 'SQL _WAREHOUSE';
+
+INSERT INTO compute_usage
+SELECT 
+    T1.compute_id || '-' || strftime('%Y%m%d', T1.date) AS compute_usage_id,
+    T1.compute_id       AS parent_id,
+    T1.compute_type     AS parent_type,
+    'STANDARD_SQL_WAREHOUSE_COMPUTE' AS compute_sku,
+    CAST(abs(random() % 50) + 500 AS INTEGER) AS dbus_consumed,
+    T1.compute_id       AS cluster_id,
+    'M'        AS cluster_instance_type,
+    (CAST(abs(random() % 50) + 500 AS INTEGER)) * (SELECT cost_per_dbu FROM constants) AS total_cost,
+    (0.9 + (random() / 9223372036854775807.0 * 0.1)) * 0.70 AS avg_cpu_utilization,
+    256.0 AS avg_memory_gb,
+    4     AS peak_concurrent_users,
     1     AS is_production,
     T1.date AS usage_date
 FROM apc_usage_data T1;
@@ -291,6 +318,14 @@ UNION ALL
 SELECT 4,
        'SELECT employee_id, salary FROM hr_data WHERE tenure > 5' AS sql_text,
        'U-CHARLIE' AS user_id;
+UNION ALL
+SELECT 5,
+       'CREATE OR REPLACE TEMP VIEW new_supply_chain AS SELECT * FROM raw_logistics_sensor_data WHERE temp > 70' AS sql_text,
+       'U-CHARLIE' AS user_id
+UNION ALL
+SELECT 6,
+       'CREATE OR REPLACE TEMP VIEW new_supply_chain AS SELECT * FROM raw_logistics_sensor_data WHERE temp > 60' AS sql_text,
+       'U-CHARLIE' AS user_id
 
 INSERT INTO sql_query_history (
     query_id,
