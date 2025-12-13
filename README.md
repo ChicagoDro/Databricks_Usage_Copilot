@@ -47,6 +47,7 @@ This is a different (and more enterprise-friendly) UX than “chat-first RAG”:
 - **LLM** provides narrative, root-cause hypotheses, and next actions
 
 ---
+# Context Aware AI
 
 ## Deterministic Reports (Not Chat Guessing)
 
@@ -62,7 +63,7 @@ Example reports (current + planned):
 
 ---
 
-## Deterministic Action Chips (Key Differentiator)
+## Deterministic Action Chips (Drill Down and Across)
 
 Every meaningful data point in a report produces deterministic “action chips” (buttons) that trigger a known prompt, for example:
 
@@ -77,29 +78,29 @@ If a visualization itself can’t host clickable links cleanly, chips are render
 ## One-Diagram Overview: Report → Selection → Prompt → Answer
 
 ```text
-┌───────────────────────┐
+┌───────────────────-────┐
 │  Report (SQL query)    │
 │  Chart / Table / KPI   │
-└───────────┬───────────┘
+└───────────┬────────-───┘
             │ click a mark / row / chip
             ▼
-┌───────────────────────┐
+┌─────────────────────--──┐
 │ Selection → Context     │
 │ entity_type + entity_id │
-└───────────┬───────────┘
+└───────────┬─────────--──┘
             │ deterministic template
             ▼
-┌───────────────────────┐
+┌───────────────────--────┐
 │ Prompt Builder          │
-│ "Tell me more about ...│
+│ "Tell me more about ... │
 │  include X, Y, Z"       │
-└───────────┬───────────┘
+└───────────┬──────────--─┘
             │
             ▼
-┌───────────────────────┐
+┌─────────────────────--──┐
 │ LLM Commentary Answer   │
 │ + optional debug panel  │
-└───────────────────────┘
+└──────────────────────--─┘
 ````
 
 ---
@@ -122,7 +123,7 @@ This database is generated from:
 
 | Table               | Description                                                  |
 | ------------------- | ------------------------------------------------------------ |
-| `workspace`        | Organizational units (cost centers)                          |
+| `workspace`         | Organizational units (cost centers)                          |
 | `users_lookup`      | Users, departments, and OU membership                        |
 | `jobs`              | Scheduled Databricks jobs with metadata + tags               |
 | `job_runs`          | Daily executions of jobs with status + cluster settings      |
@@ -169,40 +170,40 @@ At a high level:
 ### Consolidated System Diagram
 
 ```text
-                 ┌──────────────────────────┐
+                 ┌─────────────────────-─────┐
                  │   SQLite Usage DB         │
                  │ (jobs, runs, usage, ...)  │
-                 └───────────┬──────────────┘
+                 └───────────┬──────────-────┘
                              │ SQL
                              ▼
-                 ┌──────────────────────────┐
+                 ┌────────────────────-──────┐
                  │  Reports Registry         │
                  │  - SQL per report         │
                  │  - viz config             │
                  │  - entity mapping         │
                  │  - chip templates         │
-                 └───────────┬──────────────┘
+                 └───────────┬────────-──────┘
                              │
                              ▼
-┌──────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────-────────────────┐
 │                    Streamlit Dashboard                        │
 │  Sidebar: Report links + Debug toggle                         │
-│                                                              │
-│  ┌─────────────────────┐   ┌──────────────────────────────┐  │
-│  │ Visualization Pane   │   │ Commentary Pane (LLM)         │  │
-│  │ (chart/table/KPI)    │   │ "Tell me more about ..."      │  │
-│  │ click → context      │   │ + freeform prompt box         │  │
-│  └──────────┬──────────┘   └───────────┬───────────────────┘  │
-│             │ selection                 │ deterministic prompt  │
-│             ▼                           ▼                       │
-│      ┌───────────────────────────────────────────────┐         │
-│      │ Prompt Builder + Context Assembler             │         │
-│      └──────────────────────┬────────────────────────┘         │
-│                             ▼                                  │
-│                      ┌──────────────┐                          │
-│                      │      LLM      │                          │
-│                      └──────────────┘                          │
-└──────────────────────────────────────────────────────────────┘
+│                                                               │
+│  ┌──────────────────-───┐ ┌─────────────-─────────────────┐   │
+│  │ Visualization Pane   │ │ Commentary Pane (LLM)         │   │
+│  │ (chart/table/KPI)    │ │ "Tell me more about ..."      │   │
+│  │ click → context      │ │ + freeform prompt box         │   │
+│  └──────────┬─────────-─┘ └───────────┬───────────────────┘   │
+│             │ selection               │ deterministic prompt  │
+│             ▼                         ▼                       │
+│      ┌───────────────────────────────────────────────┐        │
+│      │ Prompt Builder + Context Assembler            │        │
+│      └──────────────────────┬────────────────────────┘        │
+│                             ▼                                 │
+│                      ┌──────────────┐                         │
+│                      │      LLM     │                         │
+│                      └──────────────┘                         │
+└─────────────────────────────────────-─────────────────────────┘
 ```
 
 ---
