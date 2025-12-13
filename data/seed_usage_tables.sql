@@ -167,7 +167,10 @@ SELECT
     max_nodes,
     fixed_nodes,
     is_autoscaling_enabled,
-    0.80 AS avg_cpu_credits
+    CASE WHEN run_status = 'FAILED'
+         THEN 1.0
+         ELSE ROUND(ABS(random()) % 1000000000 / 1000000000.0 * 0.5, 1)
+    END AS spot_ratio
 FROM run_data;
 
 -- Insert into eviction_details
@@ -236,7 +239,7 @@ SELECT
 FROM apc_usage_data T1;
 
 -- Insert into compute_usage (APC Clusters)
-CREATE TEMP VIEW apc_usage_data AS
+CREATE TEMP VIEW wh_usage_data AS
 SELECT 
     T1.compute_id,
     T1.compute_type,
@@ -260,7 +263,7 @@ SELECT
     4     AS peak_concurrent_users,
     1     AS is_production,
     T1.date AS usage_date
-FROM apc_usage_data T1;
+FROM wh_usage_data T1;
 
 -- Insert into events (START/END/EVICTION Events)
 INSERT INTO events
@@ -317,7 +320,7 @@ SELECT 3,
 UNION ALL
 SELECT 4,
        'SELECT employee_id, salary FROM hr_data WHERE tenure > 5' AS sql_text,
-       'U-CHARLIE' AS user_id;
+       'U-CHARLIE' AS user_id
 UNION ALL
 SELECT 5,
        'CREATE OR REPLACE TEMP VIEW new_supply_chain AS SELECT * FROM raw_logistics_sensor_data WHERE temp > 70' AS sql_text,
@@ -325,8 +328,8 @@ SELECT 5,
 UNION ALL
 SELECT 6,
        'CREATE OR REPLACE TEMP VIEW new_supply_chain AS SELECT * FROM raw_logistics_sensor_data WHERE temp > 60' AS sql_text,
-       'U-CHARLIE' AS user_id
-
+       'U-CHARLIE' AS user_id;
+       
 INSERT INTO sql_query_history (
     query_id,
     parent_id,

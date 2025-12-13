@@ -35,3 +35,5 @@ rank_bm25
 # App UI
 streamlit
 watchdog
+pandas
+plotly

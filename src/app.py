@@ -1,66 +1,70 @@
 # src/app.py
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Optional
 
 import streamlit as st
-from src.chat_orchestrator import DatabricksUsageAssistant, ChatResult
+
+from src.chat_orchestrator import DatabricksUsageAssistant
+from src.reports.base import SelectionLike
+from src.reports.registry import get_reports, get_report_map, get_default_report_key
 
 
-def get_assistant() -> DatabricksUsageAssistant:
+def init_state() -> None:
     if "assistant" not in st.session_state:
         st.session_state.assistant = DatabricksUsageAssistant.from_local()
-    return st.session_state.assistant
 
+    if "selected_report_key" not in st.session_state:
+        st.session_state.selected_report_key = get_default_report_key()
 
-def init_session_state():
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+    if "filters" not in st.session_state:
+        st.session_state.filters = {}
 
-    if "focus" not in st.session_state:
-        st.session_state.focus = None  # {"entity_type": str, "entity_id": str}
+    if "selection" not in st.session_state:
+        st.session_state.selection = None  # type: Optional[SelectionLike]
 
-    if "pending_user_message" not in st.session_state:
-        st.session_state.pending_user_message = None
+    if "commentary" not in st.session_state:
+        st.session_state.commentary = []  # list of {"prompt": str, "response": str}
+
+    if "pending_prompt" not in st.session_state:
+        st.session_state.pending_prompt = None
 
     if "debug_mode" not in st.session_state:
         st.session_state.debug_mode = False
 
-
-def send_message(user_input: str, assistant: DatabricksUsageAssistant):
-    user_input = (user_input or "").strip()
-    if not user_input:
-        return
-
-    st.session_state.messages.append(
-        {
-            "role": "user",
-            "content": user_input,
-            "entities": [],
-            "graph_explanation": None,
-            "llm_prompt": None,
-            "llm_context": None,
-        }
-    )
-
-    result: ChatResult = assistant.answer(user_input, focus=st.session_state.focus)
-
-    st.session_state.messages.append(
-        {
-            "role": "assistant",
-            "content": result.answer,
-            "entities": getattr(result, "entities", []) or [],
-            "graph_explanation": getattr(result, "graph_explanation", None),
-            "llm_prompt": getattr(result, "llm_prompt", None),
-            "llm_context": getattr(result, "llm_context", None),
-        }
-    )
+    if "db_path" not in st.session_state:
+        # Robust default path from repo root (works regardless of how streamlit is launched)
+        repo_root = Path(__file__).resolve().parents[1]
+        default_db = repo_root / "data" / "usage_rag_data.db"
+        st.session_state.db_path = os.getenv("DB_PATH", str(default_db))
 
 
-def render_entity_chips(entities: list[dict], key_prefix: str, max_items: int = 14):
-    if not entities:
-        return
+def assistant() -> DatabricksUsageAssistant:
+    return st.session_state.assistant
 
-    entities = entities[:max_items]
 
-    # Make buttons look like chips
+def run_commentary(prompt: str) -> None:
+    focus = None
+    sel = st.session_state.selection
+    if sel is not None:
+        focus = {"entity_type": sel.entity_type, "entity_id": sel.entity_id}
+
+    result = assistant().answer(prompt, focus=focus)
+    st.session_state.commentary.append({"prompt": prompt, "response": result.answer})
+
+    if st.session_state.debug_mode:
+        st.session_state._debug_graph = result.graph_explanation
+        st.session_state._debug_prompt = result.llm_prompt
+        st.session_state._debug_context = result.llm_context
+    else:
+        st.session_state._debug_graph = None
+        st.session_state._debug_prompt = None
+        st.session_state._debug_context = None
+
+
+def render_action_chips(report, sel: SelectionLike) -> None:
     st.markdown(
         """
         <style>
@@ -77,96 +81,141 @@ def render_entity_chips(entities: list[dict], key_prefix: str, max_items: int = 
         unsafe_allow_html=True,
     )
 
+    chips = report.build_action_chips(sel, st.session_state.filters)
+    if not chips:
+        return
+
     st.markdown("**Actions:**")
-    cols = st.columns(min(4, len(entities)))
-
-    for i, e in enumerate(entities):
-        et = e.get("entity_type") or "entity"
-        eid = e.get("entity_id")
-        label = e.get("label") or f"{et}:{eid}"
-        if not eid:
-            continue
-
+    cols = st.columns(min(3, len(chips)))
+    for i, chip in enumerate(chips):
         with cols[i % len(cols)]:
-            if st.button(label, key=f"{key_prefix}-chip-{i}"):
-                # Always auto-send
-                st.session_state.focus = {"entity_type": str(et), "entity_id": str(eid)}
-                st.session_state.pending_user_message = f"tell me more about this {et} {eid}"
+            if st.button(chip.label, key=f"chip-{report.key}-{i}"):
+                if chip.focus:
+                    st.session_state.selection = sel
+                st.session_state.pending_prompt = chip.prompt
                 st.rerun()
 
 
-def maybe_render_debug(msg: dict):
-    if not st.session_state.debug_mode:
-        return
+st.set_page_config(page_title="Databricks Usage Copilot", page_icon="📊", layout="wide")
+init_state()
 
-    if not (msg.get("graph_explanation") or msg.get("llm_prompt") or msg.get("llm_context")):
-        return
+reports = get_reports()
+report_map = get_report_map()
+current_report = report_map[st.session_state.selected_report_key]
 
-    with st.expander("🔍 How I reasoned (debug)", expanded=False):
-        if msg.get("graph_explanation"):
-            st.markdown(msg["graph_explanation"])
-        if msg.get("llm_prompt"):
-            st.markdown("**LLM Prompt**")
-            st.code(msg["llm_prompt"], language="markdown")
-        if msg.get("llm_context"):
-            st.markdown("**Context sent to LLM**")
-            st.code(msg["llm_context"], language="markdown")
-
-
-# -------------------- Page config -------------------- #
-
-st.set_page_config(
-    page_title="Databricks Usage Copilot",
-    page_icon="🧠",
-    layout="wide",
-)
-
-st.title("🧠 Databricks Usage Copilot")
-st.caption("Ask questions about jobs, runs, compute usage, cost, evictions, and SQL queries.")
-
-init_session_state()
-assistant = get_assistant()
+st.title("📊 Databricks Usage Copilot")
+st.caption("Deterministic reporting + contextual AI commentary")
 
 with st.sidebar:
-    st.header("Controls")
-    st.checkbox("Debug mode", key="debug_mode")
+    st.header("Reports")
+
+    report_labels = {r.name: r.key for r in reports}
+    selected_label = st.radio(
+        "Choose report",
+        options=list(report_labels.keys()),
+        index=list(report_labels.values()).index(st.session_state.selected_report_key),
+        label_visibility="collapsed",
+    )
+    st.session_state.selected_report_key = report_labels[selected_label]
+    current_report = report_map[st.session_state.selected_report_key]
 
     st.divider()
 
-    if st.session_state.focus:
-        f = st.session_state.focus
-        st.info(f"Context: {f['entity_type']} {f['entity_id']}")
-        if st.button("Clear context"):
-            st.session_state.focus = None
-            st.rerun()
+    st.header("Controls")
+    st.checkbox("Debug mode", key="debug_mode")
+
+    # Read-only DB path (no input)
+    st.caption(f"DB: `{st.session_state.db_path}`")
+
+    if st.button("Clear selection"):
+        st.session_state.selection = None
+        st.rerun()
+
+    if st.button("Clear commentary"):
+        st.session_state.commentary = []
+        st.session_state.pending_prompt = None
+        st.rerun()
 
 
-# -------------------- Render chat history -------------------- #
+viz_col, comm_col = st.columns([2.2, 1.0], gap="large")
 
-for idx, msg in enumerate(st.session_state.messages):
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+with viz_col:
+    st.subheader(current_report.name)
+    st.caption(current_report.description)
 
-        if msg["role"] == "assistant":
-            entities = msg.get("entities") or []
-            if entities:
-                render_entity_chips(entities, key_prefix=f"hist-{idx}")
+    df = current_report.load_df(st.session_state.db_path, st.session_state.filters)
+    current_report.render_viz(df, st.session_state.filters)
 
-            maybe_render_debug(msg)
+    selections = current_report.build_selections(df, st.session_state.filters)
+    if selections:
+        st.markdown("**Select an item:**")
+        cols = st.columns(3)
+        for i, sel in enumerate(selections):
+            with cols[i % 3]:
+                if st.button(sel.label, key=f"select-{current_report.key}-{i}"):
+                    st.session_state.selection = sel
+                    st.session_state.pending_prompt = f"Tell me more about {sel.entity_type} {sel.entity_id}."
+                    st.rerun()
 
+with comm_col:
+    st.subheader("Commentary")
 
-# -------------------- Auto-send from chip -------------------- #
+    sel = st.session_state.selection
+    if sel is None:
+        st.info("Select an item in the report to generate commentary.")
+    else:
+        st.success(f"Selection: {sel.entity_type} • {sel.label}")
+        render_action_chips(current_report, sel)
 
-if st.session_state.pending_user_message:
-    to_send = st.session_state.pending_user_message
-    st.session_state.pending_user_message = None
-    send_message(to_send, assistant)
-    st.rerun()
+    st.markdown("---")
 
+    if st.session_state.commentary:
+        last = st.session_state.commentary[-1]
+        st.markdown(last["response"])
+        with st.expander("Show prompt", expanded=False):
+            st.code(last["prompt"])
+    else:
+        st.caption("No commentary yet.")
 
-# -------------------- Manual input -------------------- #
+    if st.session_state.debug_mode:
+        with st.expander("🔍 Debug", expanded=False):
+            # Show report SQL FIRST (because it’s what you need when df is empty)
+            if current_report.debug_sql:
+                st.markdown("**Report SQL**")
+                st.code(current_report.debug_sql, language="sql")
 
-user_input = st.chat_input("Ask a question about Databricks usage…")
-if user_input:
-    send_message(user_input, assistant)
+            if st.session_state.commentary:
+                if st.session_state._debug_graph:
+                    st.markdown("**Graph / retrieval explanation**")
+                    st.markdown(st.session_state._debug_graph)
+                if st.session_state._debug_prompt:
+                    st.markdown("**LLM prompt**")
+                    st.code(st.session_state._debug_prompt)
+                if st.session_state._debug_context:
+                    st.markdown("**LLM context**")
+                    st.code(st.session_state._debug_context)
+
+    st.markdown("---")
+
+    with st.form("freeform", clear_on_submit=False):
+        free = st.text_area(
+            "Ask a follow-up",
+            placeholder="Ask a follow-up about this report or selection…",
+            height=110,
+            label_visibility="collapsed",
+        )
+        submitted = st.form_submit_button("Ask")
+
+    if submitted and free.strip():
+        context = [f"Report: {current_report.name}"]
+        if sel:
+            context.append(f"Selected: {sel.entity_type} {sel.entity_id}")
+        prompt = f"{free.strip()}\n\nContext:\n" + "\n".join(context)
+        st.session_state.pending_prompt = prompt
+        st.rerun()
+
+if st.session_state.pending_prompt:
+    p = st.session_state.pending_prompt
+    st.session_state.pending_prompt = None
+    run_commentary(p)
     st.rerun()
