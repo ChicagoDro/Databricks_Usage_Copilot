@@ -37,3 +37,7 @@ streamlit
 watchdog
 pandas
 plotly
+
+# Web scraping
+requests
+beautifulsoup4

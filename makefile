@@ -28,15 +28,25 @@ app:
 
 
 # ------------------------------------------------------
-# 4. Full setup + app
+# 4. Build Databricks Compute docs index
 # ------------------------------------------------------
-all: db index app
+
+docs:
+	@echo "📘 Building Databricks Compute docs index..."
+	python -m src.ingest_databricks_docs
+	@echo "✔️  Docs index built."
 
 # ------------------------------------------------------
-# 5. Clean generated files
+# 5. Full setup + app
+# ------------------------------------------------------
+all: db index docs app
+
+# ------------------------------------------------------
+# 6. Clean generated files
 # ------------------------------------------------------
 clean:
 	@echo "🧹 Cleaning generated files..."
 	rm -rf indexes/usage_faiss
+	rm -rf indexes/docs_databricks_compute
 	rm -f $(DB)
 	@echo "✔️  Cleaned."
