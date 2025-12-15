@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import streamlit as st
 
@@ -25,7 +25,7 @@ class Chip:
     id: stable identifier used for Streamlit keying (prevents index-shift weirdness)
     label: button label
     prompt: prompt to run when clicked
-    focus: whether the chip is selection-focused (kept for parity with your existing chip model)
+    focus: whether the chip is selection-focused (parity with existing chip models)
     group: taxonomy lane (Understand / Diagnose / Optimize / Monitor)
     """
     id: str
@@ -40,7 +40,8 @@ GROUP_ORDER = ["Understand", "Diagnose", "Optimize", "Monitor"]
 
 def _safe_slug(x: str) -> str:
     return (
-        x.replace(" ", "_")
+        str(x)
+        .replace(" ", "_")
         .replace("/", "_")
         .replace(":", "_")
         .replace("|", "_")
@@ -170,7 +171,7 @@ def _render_chip_groups(chips: List[Chip], key_prefix: str) -> None:
     if not chips:
         return
 
-    grouped = {g: [] for g in GROUP_ORDER}
+    grouped: Dict[str, List[Chip]] = {g: [] for g in GROUP_ORDER}
     for c in chips:
         g = c.group if c.group in grouped else "Diagnose"
         grouped[g].append(c)
@@ -180,6 +181,248 @@ def _render_chip_groups(chips: List[Chip], key_prefix: str) -> None:
             continue
         st.markdown(f"**{g}**")
         _render_chip_row(grouped[g], key_prefix=f"{key_prefix}:{g}", columns=3)
+
+
+# ============================
+# Report Catalog (Pillars + TODO)
+# ============================
+
+# Active reports are listed by NAME (more convenient than keys).
+PILLAR_CATALOG: List[Tuple[str, str, List[str], List[Tuple[str, str]]]] = [
+    (
+        "Cost Management",
+        "Spend, spot exposure, and cost concentration.",
+        [
+            "Job Cost",
+            "Total Cost by Compute Type",
+            "Cost Concentration (Pareto)",
+            "Spot Risk Exposure by Job",
+        ],
+        [
+            ("Cost Anomalies", "Detect jobs/clusters deviating from baseline cost."),
+            ("Cost Efficiency", "$ per successful run / per GB processed / per SLA-hour."),
+            ("Spot Counterfactual", "Estimate on-demand cost vs actual spot outcomes."),
+        ],
+    ),
+    (
+        "Reliability",
+        "Failures, retries, SLA breaches, and long-tail runtime risk.",
+        [],
+        [
+            ("Job Reliability Scorecard", "Success rate, retries, p95 runtime, SLA violations."),
+            ("Failure Pattern Breakdown", "Top failure signatures, categories, and correlations."),
+            ("Fragility Index", "Jobs that barely succeed (high retries / long-tail runtimes)."),
+        ],
+    ),
+    (
+        "Performance & Efficiency",
+        "Runtime regressions and resource efficiency (CPU/memory).",
+        [],
+        [
+            ("Runtime Regression", "Week-over-week p50/p95 runtime shifts by job."),
+            ("Utilization Efficiency", "Under/over-provisioning signals and sizing suggestions."),
+            ("Shuffle/Spill Hotspots", "Spill/GC pressure indicators by workload."),
+        ],
+    ),
+    (
+        "Data Quality",
+        "Freshness, volume drift, and upstream/downstream impact.",
+        [],
+        [
+            ("Freshness Monitor", "Late or missing dataset updates vs expectation."),
+            ("Volume Drift", "Row count drift vs rolling baseline."),
+            ("Blast Radius Map", "Which jobs are affected by upstream data issues."),
+        ],
+    ),
+    (
+        "Resilience",
+        "Recovery, sensitivity to change, and operational robustness.",
+        [],
+        [
+            ("Recovery Time", "Time-to-recover after failure (MTTR) by job."),
+            ("Change Sensitivity", "Breakage correlated with config/code changes."),
+            ("Single Points of Failure", "Jobs without fallback compute or fragile configs."),
+        ],
+    ),
+]
+
+# Sidebar-only renames (do NOT change report implementation)
+REPORT_NAME_ALIASES = {
+    "Job Cost": "Job Cost Breakdown",
+}
+
+
+def _resolve_report_key(identifier: str, report_map: Dict[str, object]) -> Optional[str]:
+    """
+    Identifier can be either:
+      - an actual report key, OR
+      - a report.name
+    Returns the report key if found.
+    """
+    if identifier in report_map:
+        return identifier
+    for k, r in report_map.items():
+        if getattr(r, "name", None) == identifier:
+            return k
+    return None
+
+
+def _display_report_name(report_obj: object) -> str:
+    n = getattr(report_obj, "name", "Unknown Report")
+    return REPORT_NAME_ALIASES.get(n, n)
+
+
+def _build_uncategorized_report_names(report_map: Dict[str, object]) -> List[str]:
+    categorized_names = set()
+    for _, _, active_identifiers, _ in PILLAR_CATALOG:
+        for ident in active_identifiers:
+            categorized_names.add(ident)
+
+    all_names = [getattr(r, "name", "") for r in report_map.values()]
+    return sorted([n for n in all_names if n and n not in categorized_names])
+
+
+def _select_report(key: str) -> None:
+    st.session_state.selected_report_key = key
+    st.session_state.pending_prompt = None
+    st.session_state.selection = None
+    st.rerun()
+
+
+def _render_sidebar_report_nav(report_map: Dict[str, object]) -> None:
+    """
+    Pillar-based navigation:
+    - Active reports are clickable
+    - TODO reports are disabled + greyed out
+    - Unmapped reports show up under "Uncategorized"
+    """
+    st.markdown(
+        """
+        <style>
+        section[data-testid="stSidebar"] .block-container {
+            padding-top: 0.75rem;
+            padding-bottom: 0.75rem;
+        }
+
+        .pillar-title {
+            font-size: 0.95rem;
+            font-weight: 700;
+            margin: 0.25rem 0 0.10rem 0;
+        }
+        .pillar-sub {
+            font-size: 0.75rem;
+            opacity: 0.70;
+            margin: 0 0 0.35rem 0;
+        }
+
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+            width: 100%;
+            border-radius: 10px;
+            padding: 0.35rem 0.55rem;
+            margin: 0.12rem 0;
+            font-size: 0.80rem;
+            text-align: left;
+            white-space: normal !important;
+            height: auto !important;
+        }
+
+        section[data-testid="stSidebar"] div[data-testid="stButton"] > button:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .selected-report {
+            font-size: 0.75rem;
+            opacity: 0.75;
+            margin-top: 0.25rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.header("Reports (Pillars)")
+    q = st.text_input("Search reports", key="report_search", placeholder="e.g. cost, reliability…")
+
+    def matches(text: str) -> bool:
+        if not q:
+            return True
+        return q.lower() in text.lower()
+
+    for pillar, desc, active_idents, todo_items in PILLAR_CATALOG:
+        # Filter pillars based on search
+        if q and not matches(pillar) and not matches(desc):
+            any_hit = False
+            for ident in active_idents:
+                k = _resolve_report_key(ident, report_map)
+                if k:
+                    shown = _display_report_name(report_map[k])
+                    if matches(shown):
+                        any_hit = True
+                        break
+            if not any_hit:
+                for name, d in todo_items:
+                    if matches(name) or matches(d):
+                        any_hit = True
+                        break
+            if not any_hit:
+                continue
+
+        st.markdown(f"<div class='pillar-title'>{pillar}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='pillar-sub'>{desc}</div>", unsafe_allow_html=True)
+
+        # Active reports (clickable)
+        for ident in active_idents:
+            k = _resolve_report_key(ident, report_map)
+            if not k:
+                continue
+            r = report_map[k]
+            shown_name = _display_report_name(r)
+
+            if q and not matches(shown_name):
+                continue
+
+            is_selected = (k == st.session_state.selected_report_key)
+            label = f"✅ {shown_name}" if is_selected else shown_name
+
+            if st.button(label, key=f"nav:{pillar}:{k}"):
+                _select_report(k)
+
+        # TODO reports (disabled)
+        for name, short_desc in todo_items:
+            if q and not matches(name) and not matches(short_desc):
+                continue
+            st.button(f"🕒 {name} (TODO)", key=f"nav:{pillar}:todo:{_safe_slug(name)}", disabled=True)
+
+        st.divider()
+
+    # Uncategorized (auto)
+    uncat = _build_uncategorized_report_names(report_map)
+    if uncat:
+        st.markdown("<div class='pillar-title'>Uncategorized</div>", unsafe_allow_html=True)
+        st.markdown("<div class='pillar-sub'>Reports not yet mapped to a pillar.</div>", unsafe_allow_html=True)
+
+        for name in uncat:
+            k = _resolve_report_key(name, report_map)
+            if not k:
+                continue
+            r = report_map[k]
+            shown_name = _display_report_name(r)
+
+            if q and not matches(shown_name):
+                continue
+
+            is_selected = (k == st.session_state.selected_report_key)
+            label = f"✅ {shown_name}" if is_selected else shown_name
+
+            if st.button(label, key=f"nav:uncat:{k}"):
+                _select_report(k)
+
+        st.divider()
+
+    cur_key = st.session_state.selected_report_key
+    cur_name = _display_report_name(report_map[cur_key]) if cur_key in report_map else cur_key
+    st.markdown(f"<div class='selected-report'>Selected: <b>{cur_name}</b></div>", unsafe_allow_html=True)
 
 
 # ============================
@@ -250,36 +493,26 @@ def run_commentary(prompt: str) -> None:
 # ============================
 
 def render_action_chips(report, sel: SelectionLike) -> None:
-    # Pill styling (kept from your original)
     st.markdown(
         """
         <style>
-        /* Base button container */
         div[data-testid="stButton"] {
             width: 100%;
         }
-
-        /* Actual button */
         div[data-testid="stButton"] > button {
             width: 100%;
-
             border-radius: 999px;
             padding: 0.30rem 0.65rem;
             margin: 0.15rem 0;
-
             border: 1px solid rgba(49, 51, 63, 0.25);
             background-color: rgba(240, 242, 246, 0.6);
-
-            font-size: 0.78rem;     /* smaller text */
-            line-height: 1.05rem;   /* tight vertical spacing */
+            font-size: 0.78rem;
+            line-height: 1.05rem;
             font-weight: 500;
-
-            white-space: normal !important;  /* allow wrapping */
-            height: auto !important;         /* grow vertically */
+            white-space: normal !important;
+            height: auto !important;
             text-align: center;
         }
-
-        /* Hover / focus polish */
         div[data-testid="stButton"] > button:hover {
             background-color: rgba(240, 242, 246, 0.9);
             border-color: rgba(49, 51, 63, 0.45);
@@ -289,17 +522,13 @@ def render_action_chips(report, sel: SelectionLike) -> None:
         unsafe_allow_html=True,
     )
 
-    # 1) Report-defined chips (author intent)
     report_chips_raw = report.build_action_chips(sel, st.session_state.filters) or []
 
     report_chips: List[Chip] = []
     for idx, rc in enumerate(report_chips_raw):
         rc_id = getattr(rc, "id", None)
         stable_id = rc_id or f"report:{_safe_slug(report.key)}:{_safe_slug(sel.entity_type)}:{_safe_slug(sel.entity_id)}:{idx}"
-
-        # If report chips don’t specify a group, default to Diagnose (safe middle)
         grp = getattr(rc, "group", None) or "Diagnose"
-
         report_chips.append(
             Chip(
                 id=stable_id,
@@ -310,10 +539,8 @@ def render_action_chips(report, sel: SelectionLike) -> None:
             )
         )
 
-    # 2) Deterministic baseline chips (always available)
     core_chips = _default_chips_for_selection(report.name, sel)
 
-    # 3) Combine with deterministic ordering + de-dupe by id
     seen = set()
     combined: List[Chip] = []
     for c in (report_chips + core_chips):
@@ -333,34 +560,25 @@ def render_action_chips(report, sel: SelectionLike) -> None:
 # App UI
 # ============================
 
-st.set_page_config(page_title="Databricks Usage Copilot", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Databricks Copilot", page_icon="📊", layout="wide")
 init_state()
 
 reports = get_reports()
 report_map = get_report_map()
+
+if st.session_state.selected_report_key not in report_map:
+    st.session_state.selected_report_key = get_default_report_key()
+
 current_report = report_map[st.session_state.selected_report_key]
 
-st.title("📊 Databricks Usage Copilot")
+st.title("📊 Databricks Copilot")
 st.caption("Deterministic reporting + contextual AI commentary")
 
 with st.sidebar:
-    st.header("Reports")
-
-    report_labels = {r.name: r.key for r in reports}
-    selected_label = st.radio(
-        "Choose report",
-        options=list(report_labels.keys()),
-        index=list(report_labels.values()).index(st.session_state.selected_report_key),
-        label_visibility="collapsed",
-    )
-    st.session_state.selected_report_key = report_labels[selected_label]
-    current_report = report_map[st.session_state.selected_report_key]
-
-    st.divider()
+    _render_sidebar_report_nav(report_map)
 
     st.header("Controls")
     st.checkbox("Debug mode", key="debug_mode")
-
     st.caption(f"DB: `{st.session_state.db_path}`")
 
     if st.button("Clear selection"):
@@ -416,7 +634,7 @@ with comm_col:
 
     if st.session_state.debug_mode:
         with st.expander("🔍 Debug", expanded=False):
-            if current_report.debug_sql:
+            if getattr(current_report, "debug_sql", None):
                 st.markdown("**Report SQL**")
                 st.code(current_report.debug_sql, language="sql")
 

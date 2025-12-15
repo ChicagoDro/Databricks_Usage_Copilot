@@ -14,7 +14,8 @@ Chicago, IL
 
 ## Overview
 
-**Databricks Usage Copilot** is an AI-powered analytics system for exploring **Databricks usage, cost, and reliability**.
+**Databricks Usage Copilot** is a deterministic, report-driven AI assistant for analyzing cost, reliability, performance, and operational risk in Databricks workloads.
+
 
 Unlike chat-first copilots, this project is **report-driven and deterministic**:
 
@@ -71,19 +72,25 @@ AI is the **commentary layer**.
 
 ## Deterministic Action Chips (Key Differentiator)
 
-Every meaningful data point produces deterministic action chips such as:
+A core design principle of Databricks Usage Copilot is that **AI actions are deterministic, contextual, and intentional**.
 
-* `Tell me more about job_id = J-123`
-* `Explain spend for compute_type = SQL_WAREHOUSE`
-* `Why is this job risky from a spot perspective?`
+Rather than free-form prompting, the UI presents **action chips** that are:
 
-If charts cannot host clickable marks cleanly, chips are rendered below the visualization.
+- **Deterministic** – each chip maps to a fixed prompt template
+- **Context-aware** – prompts are parameterized by the selected entity (job, cluster, warehouse, etc.)
+- **Stable** – chip identity and ordering do not change across runs
+- **Explainable** – users can always inspect the exact prompt that was executed
 
-This ensures:
+### Chip Taxonomy
 
-* Repeatable prompts
-* Predictable behavior
-* Auditable reasoning paths
+Action chips are organized into four conceptual lanes that mirror how platform operators think:
+
+- **Understand** – What is this? What does “good” look like?
+- **Diagnose** – Why is this happening? What changed?
+- **Optimize** – What should I change to improve cost, reliability, or performance?
+- **Monitor** – How do I validate improvements and prevent regressions?
+
+This structure aligns directly with the pillars of data engineering (cost, reliability, performance, resilience, data quality) and provides a repeatable “operational playbook” for each report and selection.
 
 ---
 
@@ -296,10 +303,60 @@ This project demonstrates how to build **enterprise-ready AI copilots** that:
 
 ---
 
-## Future Enhancements
+## Roadmap
 
-* Additional deterministic reports (utilization efficiency, cost drift)
-* Evaluation harnesses (groundedness, completeness)
-* Export graph to Neo4j for scale
-* Role-based report views
+The Copilot is intentionally built as an extensible system. Upcoming work focuses on expanding coverage across the pillars of data engineering and introducing higher-level reasoning on top of deterministic foundations.
+
+### Pillar-Based Reports (Planned)
+
+Additional reports will be added under the following pillars:
+
+- **Cost Management**
+  - Cost anomalies vs baseline
+  - Cost efficiency ($ per run, $ per GB processed)
+  - Spot vs on-demand counterfactual analysis
+
+- **Reliability**
+  - Job reliability scorecards (success rate, retries, SLA breaches)
+  - Failure pattern analysis (error signatures, root causes)
+  - Fragility detection (jobs that barely succeed)
+
+- **Performance & Efficiency**
+  - Runtime regression detection (p50 / p95 drift)
+  - Resource utilization efficiency (CPU/memory)
+  - Shuffle and spill hotspots
+
+- **Data Quality**
+  - Dataset freshness monitoring
+  - Volume drift detection
+  - Upstream/downstream blast radius analysis
+
+- **Resilience**
+  - Recovery time metrics (MTTR)
+  - Sensitivity to configuration or code changes
+  - Single points of failure identification
+
+Reports not yet implemented are visible in the UI as disabled placeholders to make the system’s intended scope explicit.
+
+### Agent-Based Capabilities (Future)
+
+Once deterministic reports and action chips are in place, the Copilot will introduce **agents** that can:
+
+- Execute multi-step investigations across reports
+- Compare alternative optimization strategies
+- Propose remediation plans with verification steps
+- Escalate from diagnosis → optimization → monitoring automatically
+
+Agents will build on deterministic chips rather than replacing them.
+
+### Evaluation & Testing (Future)
+
+Planned work also includes:
+
+- Prompt and response regression tests
+- Deterministic evaluation sets for key scenarios
+- Groundedness checks against report data
+- Cost and latency tracking for AI interactions
+
+The goal is to treat AI behavior as a **testable system**, not a black box.
 
