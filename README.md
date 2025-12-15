@@ -122,6 +122,70 @@ This structure aligns directly with the pillars of data engineering (cost, relia
 ```
 
 ---
+## Primary Knowledge Corpus: Usage Graph
+
+The first and most important knowledge corpus in Databricks Usage Copilot is a **usage graph** that models how Databricks workloads actually operate in practice.
+
+Rather than treating usage data as flat tables or isolated logs, the Copilot represents the system as a graph of connected entities, including:
+
+- Jobs
+- Job runs
+- Compute resources (clusters / warehouses)
+- Compute usage records
+- Lifecycle and failure events
+
+This structure mirrors how platform operators reason about real systems:  
+*jobs run on compute, produce usage, encounter events, and impact cost, reliability, and performance.*
+
+### Why a Graph?
+
+Most of the underlying data originates in relational tables and could be queried with SQL alone. SQL excels at computing metrics, aggregations, and time-series statistics.
+
+The graph exists to make **relationships and causality explicit**.
+
+Many operational questions are fundamentally relationship-driven:
+
+- Which jobs are responsible for the majority of cost on a given cluster?
+- What failures correlate with specific compute configurations?
+- Is a cost spike caused by more runs, longer runtimes, retries, or infrastructure churn?
+- What downstream workloads are affected when an upstream job degrades?
+
+Answering these questions requires navigating relationships across multiple entities. While this is possible with SQL joins, the resulting logic is often brittle, hard-coded, and difficult to reuse.
+
+The graph provides a stable, navigable representation of the system that supports dynamic traversal and contextual reasoning.
+
+### What the Graph Powers
+
+The usage graph directly enables:
+
+- **Selection-aware AI commentary** grounded in actual system structure
+- **Root-cause style explanations** that connect symptoms to causes
+- **Cross-entity insights** spanning jobs, compute, and events
+- **Deterministic action chips** whose prompts are parameterized by graph context
+
+When a user selects an entity in a report, the Copilot extracts the relevant subgraph and uses it as structured context for reasoning and explanation.
+
+### Graph as a Reasoning Layer
+
+The graph is not a replacement for SQL.
+
+Instead, the system follows a clear separation of responsibilities:
+
+- **SQL** computes metrics and aggregates from raw telemetry
+- **The graph** models how entities relate and interact
+- **The LLM** uses that structure to explain *why* those metrics look the way they do
+
+This intermediate graph representation acts as a semantic compression layer, turning large volumes of raw data into meaningful, explainable structure that language models can reason over reliably.
+
+### Implementation and Evolution
+
+The current implementation uses a lightweight, local graph representation built from SQLite-backed usage data. This keeps the project easy to run locally and focused on reasoning and UX rather than infrastructure.
+
+The graph schema is intentionally designed to align with production graph databases. As the project evolves, the same model can be upgraded to a system like Neo4j to support larger datasets, deeper traversals, and multi-tenant views without changing the Copilot’s reasoning model.
+
+> **Design principle:** The graph is not an optimization — it is the model.
+
+---
 
 ## Databricks Documentation as a Second Corpus (With Citations)
 
