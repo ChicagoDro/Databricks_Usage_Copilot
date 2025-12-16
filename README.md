@@ -1,4 +1,4 @@
-# Databricks Usage Copilot
+# Data Reliability Copilot
 
 **Pete Tamisin** – Technical GTM Leader • AI & Data Engineering Architect • Builder & Teacher
 Chicago, IL
@@ -14,7 +14,7 @@ Chicago, IL
 
 ## Overview
 
-**Databricks Usage Copilot** is a deterministic, report-driven AI assistant for analyzing cost, reliability, performance, and operational risk in Databricks workloads.
+**Data Reliability Copilot** is a deterministic, report-driven AI assistant for analyzing cost, reliability, performance, and operational risk in Data Engineering workloads.
 
 
 Unlike chat-first copilots, this project is **report-driven and deterministic**:
