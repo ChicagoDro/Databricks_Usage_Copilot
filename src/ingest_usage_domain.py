@@ -1,10 +1,10 @@
-# src/Databricks_Usage/ingest_usage_domain.py
+# src/ingest_usage_domain.py
 
 import sqlite3
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
-from .config import USAGE_DB_PATH
+from src.config import USAGE_DB_PATH
 
 
 # ---------------------------------------------------------------------------
@@ -25,30 +25,30 @@ def _get_conn() -> sqlite3.Connection:
 
 
 # ---------------------------------------------------------------------------
-# ORG UNIT DOCUMENTS
+# WORKSPACE DOCUMENTS
 # ---------------------------------------------------------------------------
 
 def _fetch_workspace_docs() -> List[RagDoc]:
     with _get_conn() as conn:
         rows = conn.execute("""
-            SELECT workspace_id, name, cost_center_code, description
+            SELECT workspace_id, workspace_name, account_id, description
             FROM workspace
         """).fetchall()
 
     docs = []
     for r in rows:
         docs.append(RagDoc(
-            doc_id=f"ou::{r['workspace_id']}",
+            doc_id=f"workspace::{r['workspace_id']}",
             text=(
-                f"Org Unit: {r['name']} (ID: {r['workspace_id']})\n"
-                f"Cost Center: {r['cost_center_code']}\n\n"
+                f"Workspace: {r['workspace_name']} (ID: {r['workspace_id']})\n"
+                f"Account ID: {r['account_id']}\n\n"
                 f"Description:\n{r['description']}"
             ),
             metadata={
                 "type": "workspace",
                 "workspace_id": r["workspace_id"],
-                "ou_name": r["name"],
-                "cost_center_code": r["cost_center_code"],
+                "workspace_name": r["workspace_name"],
+                "account_id": r["account_id"],
             }
         ))
     return docs
@@ -72,7 +72,7 @@ def _fetch_user_docs() -> List[RagDoc]:
             text=(
                 f"User: {r['name']} (ID: {r['user_id']})\n"
                 f"Department: {r['department']}\n"
-                f"Org Unit: {r['workspace_id']}"
+                f"Workspace: {r['workspace_id']}"
             ),
             metadata={
                 "type": "user",
@@ -98,10 +98,10 @@ def _fetch_job_docs() -> List[RagDoc]:
                 j.description,
                 j.tags,
                 j.workspace_id,
-                ou.name AS ou_name,
-                ou.cost_center_code
+                w.workspace_name,
+                w.account_id
             FROM jobs j
-            LEFT JOIN workspace ou ON j.workspace_id = ou.workspace_id
+            LEFT JOIN workspace w ON j.workspace_id = w.workspace_id
         """).fetchall()
 
     docs = []
@@ -110,8 +110,8 @@ def _fetch_job_docs() -> List[RagDoc]:
             doc_id=f"job::{r['job_id']}",
             text=(
                 f"Job: {r['job_name']} (ID: {r['job_id']})\n"
-                f"Org Unit: {r['ou_name']} ({r['workspace_id']})\n"
-                f"Cost Center: {r['cost_center_code']}\n\n"
+                f"Workspace: {r['workspace_name']} ({r['workspace_id']})\n"
+                f"Account: {r['account_id']}\n\n"
                 f"Description:\n{r['description']}\n\n"
                 f"Tags: {r['tags']}"
             ),
@@ -120,8 +120,8 @@ def _fetch_job_docs() -> List[RagDoc]:
                 "job_id": r["job_id"],
                 "job_name": r["job_name"],
                 "workspace_id": r["workspace_id"],
-                "ou_name": r["ou_name"],
-                "cost_center_code": r["cost_center_code"],
+                "workspace_name": r["workspace_name"],
+                "account_id": r["account_id"],
                 "tags_json": r["tags"],
             }
         ))
@@ -140,10 +140,10 @@ def _fetch_compute_resource_docs() -> List[RagDoc]:
                 c.compute_name,
                 c.compute_type,
                 c.workspace_id,
-                ou.name AS ou_name,
-                ou.cost_center_code
+                w.workspace_name,
+                w.account_id
             FROM non_job_compute c
-            LEFT JOIN workspace ou ON c.workspace_id = ou.workspace_id
+            LEFT JOIN workspace w ON c.workspace_id = w.workspace_id
         """).fetchall()
 
     docs = []
@@ -153,8 +153,8 @@ def _fetch_compute_resource_docs() -> List[RagDoc]:
             text=(
                 f"Compute Resource: {r['compute_name']} (ID: {r['compute_id']})\n"
                 f"Type: {r['compute_type']}\n"
-                f"Owned by OU: {r['ou_name']} ({r['workspace_id']})\n"
-                f"Cost Center: {r['cost_center_code']}"
+                f"Workspace: {r['workspace_name']} ({r['workspace_id']})\n"
+                f"Account: {r['account_id']}"
             ),
             metadata={
                 "type": "compute_resource",
@@ -162,8 +162,8 @@ def _fetch_compute_resource_docs() -> List[RagDoc]:
                 "compute_name": r["compute_name"],
                 "compute_type": r["compute_type"],
                 "workspace_id": r["workspace_id"],
-                "ou_name": r["ou_name"],
-                "cost_center_code": r["cost_center_code"],
+                "workspace_name": r["workspace_name"],
+                "account_id": r["account_id"],
             }
         ))
     return docs
@@ -188,7 +188,8 @@ def _fetch_job_run_docs(limit=200) -> List[RagDoc]:
                 fixed_nodes,
                 min_nodes,
                 max_nodes,
-                is_autoscaling_enabled
+                is_autoscaling_enabled,
+                spot_ratio
             FROM job_runs
             ORDER BY start_time DESC
             LIMIT {limit}
@@ -200,22 +201,25 @@ def _fetch_job_run_docs(limit=200) -> List[RagDoc]:
             f"Job Run: {r['job_run_id']}\n"
             f"Job ID: {r['job_id']}\n"
             f"Status: {r['run_status']}\n"
+            f"Started: {r['start_time']}\n"
             f"Duration: {r['duration_ms']} ms\n"
-            f"Cluster: worker type {r['worker_instance_type']}, "
-            f"{r['min_nodes']}-{r['max_nodes']} nodes (fixed={r['fixed_nodes']})\n"
-            f"Autoscaling: {r['is_autoscaling_enabled']}\n"
+            f"Instance Type: {r['worker_instance_type']}\n"
+            f"Nodes: {r['fixed_nodes'] or f'{r['min_nodes']}-{r['max_nodes']}'}\n"
+            f"Autoscaling: {'Yes' if r['is_autoscaling_enabled'] else 'No'}\n"
+            f"Spot Ratio: {r['spot_ratio']:.0%}\n"
         )
-        if r["error_summary"]:
-            text += f"\nError:\n{r['error_summary']}"
+        if r['error_summary']:
+            text += f"Error: {r['error_summary']}\n"
 
         docs.append(RagDoc(
-            doc_id=f"jobrun::{r['job_run_id']}",
+            doc_id=f"run::{r['job_run_id']}",
             text=text,
             metadata={
                 "type": "job_run",
                 "job_run_id": r["job_run_id"],
                 "job_id": r["job_id"],
                 "run_status": r["run_status"],
+                "start_time": r["start_time"],
                 "duration_ms": r["duration_ms"],
             }
         ))
@@ -223,123 +227,50 @@ def _fetch_job_run_docs(limit=200) -> List[RagDoc]:
 
 
 # ---------------------------------------------------------------------------
-# COMPUTE USAGE DOCUMENTS (SUMMARIES)
+# COMPUTE USAGE DOCUMENTS (AGGREGATED)
 # ---------------------------------------------------------------------------
 
-def _fetch_compute_usage_docs(limit=300) -> List[RagDoc]:
-    """
-    One document per compute_usage row.
-
-    DDL:
-
-        compute_usage_id, parent_id, compute_type, sku,
-        dbus_consumed, instance_id, instance_type,
-        cost_usd, avg_cpu_utilization, max_memory_used_gb,
-        disk_io_wait_time_ms, cloud_market_available, usage_date
-    """
+def _fetch_compute_usage_docs(limit=100) -> List[RagDoc]:
     with _get_conn() as conn:
         rows = conn.execute(f"""
             SELECT
                 compute_usage_id,
                 parent_id,
-                compute_type,
-                sku,
+                parent_type,
+                compute_sku,
                 dbus_consumed,
-                instance_id,
-                instance_type,
-                cost_usd,
+                total_cost,
                 avg_cpu_utilization,
-                max_memory_used_gb,
-                disk_io_wait_time_ms,
-                cloud_market_available,
+                avg_memory_gb,
+                is_production,
                 usage_date
             FROM compute_usage
-            ORDER BY usage_date DESC
+            ORDER BY total_cost DESC
             LIMIT {limit}
         """).fetchall()
 
-    docs: List[RagDoc] = []
+    docs = []
     for r in rows:
-        cpu = r["avg_cpu_utilization"]
-        cpu_str = f"{cpu:.2%}" if cpu is not None else "n/a"
-
-        text = (
-            f"Compute Usage ID: {r['compute_usage_id']}\n"
-            f"Parent ID: {r['parent_id']} ({r['compute_type']})\n"
-            f"SKU: {r['sku']}\n"
-            f"DBUs Consumed: {r['dbus_consumed']}\n"
-            f"Cost (USD): {r['cost_usd']:.2f}\n"
-            f"Instance: {r['instance_id']} ({r['instance_type']})\n"
-            f"Avg CPU Utilization: {cpu_str}\n"
-            f"Max Memory Used (GB): {r['max_memory_used_gb']}\n"
-            f"Disk IO Wait (ms): {r['disk_io_wait_time_ms']}\n"
-            f"Cloud Market Available: {r['cloud_market_available']}\n"
-            f"Usage Date: {r['usage_date']}"
-        )
-
         docs.append(RagDoc(
             doc_id=f"usage::{r['compute_usage_id']}",
-            text=text,
+            text=(
+                f"Compute Usage: {r['compute_usage_id']}\n"
+                f"Parent: {r['parent_id']} ({r['parent_type']})\n"
+                f"Date: {r['usage_date']}\n"
+                f"SKU: {r['compute_sku']}\n"
+                f"DBUs: {r['dbus_consumed']:.2f}\n"
+                f"Cost: ${r['total_cost']:.2f}\n"
+                f"CPU: {r['avg_cpu_utilization']:.1%}\n"
+                f"Memory: {r['avg_memory_gb']:.1f} GB\n"
+                f"Production: {'Yes' if r['is_production'] else 'No'}"
+            ),
             metadata={
                 "type": "compute_usage",
                 "compute_usage_id": r["compute_usage_id"],
                 "parent_id": r["parent_id"],
-                "compute_type": r["compute_type"],
-                "sku": r["sku"],
+                "parent_type": r["parent_type"],
                 "usage_date": r["usage_date"],
-                "cost_usd": r["cost_usd"],
-                "dbus_consumed": r["dbus_consumed"],
-            }
-        ))
-    return docs
-
-
-# ---------------------------------------------------------------------------
-# EVENT DOCUMENTS
-# ---------------------------------------------------------------------------
-
-def _fetch_event_docs(limit=500) -> List[RagDoc]:
-    """
-    One document per event, tied to compute_usage and (optionally) eviction.
-    """
-    with _get_conn() as conn:
-        rows = conn.execute(f"""
-            SELECT
-                event_id,
-                compute_usage_id,
-                timestamp,
-                event_type,
-                user_id,
-                details,
-                eviction_id
-            FROM events
-            ORDER BY timestamp DESC
-            LIMIT {limit}
-        """).fetchall()
-
-    docs: List[RagDoc] = []
-    for r in rows:
-        text = (
-            f"Event: {r['event_id']}\n"
-            f"Type: {r['event_type']}\n"
-            f"Time: {r['timestamp']}\n"
-            f"Compute Usage ID: {r['compute_usage_id']}\n"
-            f"User ID: {r['user_id']}\n"
-        )
-        if r["eviction_id"]:
-            text += f"Eviction ID: {r['eviction_id']}\n"
-
-        text += f"\nDetails:\n{r['details']}"
-
-        docs.append(RagDoc(
-            doc_id=f"event::{r['event_id']}",
-            text=text,
-            metadata={
-                "type": "event",
-                "event_id": r["event_id"],
-                "compute_usage_id": r["compute_usage_id"],
-                "event_type": r["event_type"],
-                "eviction_id": r["eviction_id"],
+                "total_cost": r["total_cost"],
             }
         ))
     return docs
@@ -349,153 +280,192 @@ def _fetch_event_docs(limit=500) -> List[RagDoc]:
 # EVICTION DOCUMENTS
 # ---------------------------------------------------------------------------
 
-def _fetch_eviction_docs(limit=200) -> List[RagDoc]:
-    """
-    One document per eviction_details row.
-    """
+def _fetch_eviction_docs() -> List[RagDoc]:
     with _get_conn() as conn:
-        rows = conn.execute(f"""
+        rows = conn.execute("""
             SELECT
                 eviction_id,
-                instance_id,
+                cloud_instance_id,
                 eviction_time,
                 cloud_provider_message,
-                eviction_reason_code,
-                instance_reclaim_rate,
-                eviction_policy_used,
-                replacement_on_demand
+                eviction_reason,
+                spot_price,
+                was_retried
             FROM eviction_details
-            ORDER BY eviction_time DESC
-            LIMIT {limit}
         """).fetchall()
 
-    docs: List[RagDoc] = []
+    docs = []
     for r in rows:
-        text = (
-            f"Eviction ID: {r['eviction_id']}\n"
-            f"Instance ID: {r['instance_id']}\n"
-            f"Eviction Time: {r['eviction_time']}\n"
-            f"Reason Code: {r['eviction_reason_code']}\n"
-            f"Eviction Policy: {r['eviction_policy_used']}\n"
-            f"Instance Reclaim Rate: {r['instance_reclaim_rate']}\n"
-            f"Replacement On-Demand: {r['replacement_on_demand']}\n\n"
-            f"Cloud Provider Message:\n{r['cloud_provider_message']}"
-        )
-
         docs.append(RagDoc(
-            doc_id=f"evict::{r['eviction_id']}",
-            text=text,
+            doc_id=f"eviction::{r['eviction_id']}",
+            text=(
+                f"Spot Eviction: {r['eviction_id']}\n"
+                f"Instance: {r['cloud_instance_id']}\n"
+                f"Time: {r['eviction_time']}\n"
+                f"Reason: {r['eviction_reason']}\n"
+                f"Spot Price: ${r['spot_price']:.3f}\n"
+                f"Provider Message: {r['cloud_provider_message']}\n"
+                f"Retried: {'Yes' if r['was_retried'] else 'No'}"
+            ),
             metadata={
                 "type": "eviction",
                 "eviction_id": r["eviction_id"],
-                "instance_id": r["instance_id"],
-                "eviction_reason_code": r["eviction_reason_code"],
-                "eviction_policy_used": r["eviction_policy_used"],
+                "eviction_time": r["eviction_time"],
+                "eviction_reason": r["eviction_reason"],
+                "was_retried": bool(r["was_retried"]),
             }
         ))
     return docs
 
 
-
 # ---------------------------------------------------------------------------
-# QUERY DOCUMENTS (same as before)
+# EVENT DOCUMENTS
 # ---------------------------------------------------------------------------
 
-def _fetch_query_docs(limit=300) -> List[RagDoc]:
+def _fetch_event_docs(limit=200) -> List[RagDoc]:
     with _get_conn() as conn:
         rows = conn.execute(f"""
             SELECT
-                q.query_id,
-                q.parent_id,
-                q.user_id,
-                q.start_time,
-                q.duration_ms,
-                q.warehouse_sku,
-                q.sql_text,
-                q.error_message,
-                u.name AS user_name,
-                u.department,
-                u.workspace_id
-            FROM sql_query_history q
-            LEFT JOIN users_lookup u ON q.user_id = u.user_id
-            ORDER BY q.start_time DESC
+                event_id,
+                compute_usage_id,
+                event_time,
+                event_type,
+                user_id,
+                details,
+                eviction_id
+            FROM events
+            ORDER BY event_time DESC
             LIMIT {limit}
         """).fetchall()
 
     docs = []
     for r in rows:
-        lines = [
-            f"Query ID: {r['query_id']}",
-            f"User: {r['user_name']} ({r['user_id']})",
-            f"Department: {r['department']}",
-            f"Org Unit: {r['workspace_id']}",
-            f"Parent Compute: {r['parent_id']} (SKU: {r['warehouse_sku']})",
-            f"Start: {r['start_time']}",
-            f"Duration: {r['duration_ms']} ms",
-            "",
-            "SQL Text:",
-            r["sql_text"] or ""
-        ]
-        if r["error_message"]:
-            lines += ["", "Error:", r["error_message"]]
+        text = (
+            f"Event: {r['event_id']}\n"
+            f"Type: {r['event_type']}\n"
+            f"Time: {r['event_time']}\n"
+            f"Compute: {r['compute_usage_id']}\n"
+        )
+        if r['user_id']:
+            text += f"User: {r['user_id']}\n"
+        if r['details']:
+            text += f"Details: {r['details']}\n"
+        if r['eviction_id']:
+            text += f"Related Eviction: {r['eviction_id']}\n"
 
         docs.append(RagDoc(
-            doc_id=f"query::{r['query_id']}",
-            text="\n".join(lines),
+            doc_id=f"event::{r['event_id']}",
+            text=text,
             metadata={
-                "type": "query",
-                "query_id": r["query_id"],
-                "user_id": r["user_id"],
-                "workspace_id": r["workspace_id"],
-                "parent_id": r["parent_id"],
-                "duration_ms": r["duration_ms"],
+                "type": "event",
+                "event_id": r["event_id"],
+                "event_type": r["event_type"],
+                "event_time": r["event_time"],
+                "compute_usage_id": r["compute_usage_id"],
+                "eviction_id": r["eviction_id"],
             }
         ))
     return docs
 
 
 # ---------------------------------------------------------------------------
-# PUBLIC ENTRYPOINT — ALL DOCS
+# SQL QUERY HISTORY DOCUMENTS
+# ---------------------------------------------------------------------------
+
+def _fetch_sql_query_docs(limit=100) -> List[RagDoc]:
+    with _get_conn() as conn:
+        rows = conn.execute(f"""
+            SELECT
+                query_id,
+                parent_id,
+                user_id,
+                start_time,
+                duration_ms,
+                warehouse_sku,
+                sql_text,
+                error_message
+            FROM sql_query_history
+            ORDER BY start_time DESC
+            LIMIT {limit}
+        """).fetchall()
+
+    docs = []
+    for r in rows:
+        text = (
+            f"SQL Query: {r['query_id']}\n"
+            f"Warehouse: {r['parent_id']}\n"
+            f"User: {r['user_id']}\n"
+            f"Start: {r['start_time']}\n"
+            f"Duration: {r['duration_ms']} ms\n"
+            f"SKU: {r['warehouse_sku']}\n\n"
+            f"SQL:\n{r['sql_text'][:500]}\n"  # Truncate long queries
+        )
+        if r['error_message']:
+            text += f"\nError: {r['error_message']}\n"
+
+        docs.append(RagDoc(
+            doc_id=f"query::{r['query_id']}",
+            text=text,
+            metadata={
+                "type": "sql_query",
+                "query_id": r["query_id"],
+                "user_id": r["user_id"],
+                "start_time": r["start_time"],
+                "duration_ms": r["duration_ms"],
+                "has_error": bool(r["error_message"]),
+            }
+        ))
+    return docs
+
+
+# ---------------------------------------------------------------------------
+# MAIN BUILDER
 # ---------------------------------------------------------------------------
 
 def build_usage_rag_docs() -> List[RagDoc]:
-    docs: List[RagDoc] = []
-
+    """
+    Fetch and build all RAG documents from the usage domain.
+    
+    Returns a list of RagDoc objects ready for embedding and indexing.
+    """
+    print("[ingest_usage_domain] Building workspace docs...")
     workspace_docs = _fetch_workspace_docs()
-    print(f"[DEBUG] workspace docs: {len(workspace_docs)}")
-    docs.extend(workspace_docs)
-
+    
+    print("[ingest_usage_domain] Building user docs...")
     user_docs = _fetch_user_docs()
-    print(f"[DEBUG] user docs: {len(user_docs)}")
-    docs.extend(user_docs)
-
+    
+    print("[ingest_usage_domain] Building job docs...")
     job_docs = _fetch_job_docs()
-    print(f"[DEBUG] job docs: {len(job_docs)}")
-    docs.extend(job_docs)
-
+    
+    print("[ingest_usage_domain] Building compute resource docs...")
     compute_docs = _fetch_compute_resource_docs()
-    print(f"[DEBUG] compute_resource docs: {len(compute_docs)}")
-    docs.extend(compute_docs)
-
-    job_run_docs = _fetch_job_run_docs()
-    print(f"[DEBUG] job_run docs: {len(job_run_docs)}")
-    docs.extend(job_run_docs)
-
-    compute_usage_docs = _fetch_compute_usage_docs()
-    print(f"[DEBUG] compute_usage docs: {len(compute_usage_docs)}")
-    docs.extend(compute_usage_docs)
-
-    event_docs = _fetch_event_docs()
-    print(f"[DEBUG] event docs: {len(event_docs)}")
-    docs.extend(event_docs)
-
+    
+    print("[ingest_usage_domain] Building job run docs...")
+    run_docs = _fetch_job_run_docs(limit=200)
+    
+    print("[ingest_usage_domain] Building compute usage docs...")
+    usage_docs = _fetch_compute_usage_docs(limit=100)
+    
+    print("[ingest_usage_domain] Building eviction docs...")
     eviction_docs = _fetch_eviction_docs()
-    print(f"[DEBUG] eviction docs: {len(eviction_docs)}")
-    docs.extend(eviction_docs)
-
-    query_docs = _fetch_query_docs()
-    print(f"[DEBUG] query docs: {len(query_docs)}")
-    docs.extend(query_docs)
-
-    print(f"[DEBUG] total docs: {len(docs)}")
-    return docs
+    
+    print("[ingest_usage_domain] Building event docs...")
+    event_docs = _fetch_event_docs(limit=200)
+    
+    print("[ingest_usage_domain] Building SQL query docs...")
+    query_docs = _fetch_sql_query_docs(limit=100)
+    
+    all_docs = (
+        workspace_docs +
+        user_docs +
+        job_docs +
+        compute_docs +
+        run_docs +
+        usage_docs +
+        eviction_docs +
+        event_docs +
+        query_docs
+    )
+    
+    print(f"[ingest_usage_domain] Total docs created: {len(all_docs)}")
+    return all_docs

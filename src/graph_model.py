@@ -1,10 +1,10 @@
-# src/Databricks_Usage/graph_model.py
+# src/graph_model.py
 
 import sqlite3
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 
-from .config import USAGE_DB_PATH
+from src.config import USAGE_DB_PATH
 
 
 # ---------------------------------------------------------------------------
@@ -58,20 +58,20 @@ def _add_edge(
 def _build_workspace(nodes: Dict[str, GraphNode]) -> None:
     with _get_conn() as conn:
         rows = conn.execute("""
-            SELECT workspace_id, name, cost_center_code, description
+            SELECT workspace_id, workspace_name, account_id, description
             FROM workspace
         """).fetchall()
 
     for r in rows:
-        nid = f"ou::{r['workspace_id']}"
+        nid = f"workspace::{r['workspace_id']}"
         _add_node(
             nodes,
             nid,
             "workspace",
             {
                 "workspace_id": r["workspace_id"],
-                "name": r["name"],
-                "cost_center_code": r["cost_center_code"],
+                "workspace_name": r["workspace_name"],
+                "account_id": r["account_id"],
                 "description": r["description"],
             },
         )
@@ -86,7 +86,7 @@ def _build_users(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
 
     for r in rows:
         user_id = f"user::{r['user_id']}"
-        workspace_id = f"ou::{r['workspace_id']}"
+        workspace_id = f"workspace::{r['workspace_id']}"
 
         _add_node(
             nodes,
@@ -99,9 +99,9 @@ def _build_users(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
                 "department": r["department"],
             },
         )
-        # USER -> OU (BELONGS_TO)
+        # USER -> WORKSPACE (BELONGS_TO)
         _add_edge(edges, user_id, workspace_id, "BELONGS_TO")
-        # OU -> USER (HAS_USER) [reverse edge for easier parent->child traversal]
+        # WORKSPACE -> USER (HAS_USER)
         _add_edge(edges, workspace_id, user_id, "HAS_USER")
 
 
@@ -119,7 +119,7 @@ def _build_jobs(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
 
     for r in rows:
         job_id = f"job::{r['job_id']}"
-        workspace_id = f"ou::{r['workspace_id']}"
+        workspace_id = f"workspace::{r['workspace_id']}"
 
         _add_node(
             nodes,
@@ -133,9 +133,9 @@ def _build_jobs(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
                 "workspace_id": r["workspace_id"],
             },
         )
-        # JOB -> OU (OWNED_BY)
+        # JOB -> WORKSPACE (OWNED_BY)
         _add_edge(edges, job_id, workspace_id, "OWNED_BY")
-        # OU -> JOB (HAS_JOB) [reverse edge for easier parent->child traversal]
+        # WORKSPACE -> JOB (HAS_JOB)
         _add_edge(edges, workspace_id, job_id, "HAS_JOB")
 
 
@@ -152,7 +152,7 @@ def _build_compute_resources(nodes: Dict[str, GraphNode], edges: List[GraphEdge]
 
     for r in rows:
         cid = f"compute::{r['compute_id']}"
-        workspace_id = f"ou::{r['workspace_id']}"
+        workspace_id = f"workspace::{r['workspace_id']}"
 
         _add_node(
             nodes,
@@ -165,9 +165,9 @@ def _build_compute_resources(nodes: Dict[str, GraphNode], edges: List[GraphEdge]
                 "workspace_id": r["workspace_id"],
             },
         )
-        # COMPUTE_RESOURCE -> OU (OWNED_BY)
+        # COMPUTE_RESOURCE -> WORKSPACE (OWNED_BY)
         _add_edge(edges, cid, workspace_id, "OWNED_BY")
-        # OU -> COMPUTE_RESOURCE (HAS_COMPUTE) [reverse edge]
+        # WORKSPACE -> COMPUTE_RESOURCE (HAS_COMPUTE)
         _add_edge(edges, workspace_id, cid, "HAS_COMPUTE")
 
 
@@ -186,7 +186,8 @@ def _build_job_runs(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None
                 fixed_nodes,
                 min_nodes,
                 max_nodes,
-                is_autoscaling_enabled
+                is_autoscaling_enabled,
+                spot_ratio
             FROM job_runs
         """).fetchall()
 
@@ -211,11 +212,12 @@ def _build_job_runs(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None
                 "min_nodes": r["min_nodes"],
                 "max_nodes": r["max_nodes"],
                 "is_autoscaling_enabled": r["is_autoscaling_enabled"],
+                "spot_ratio": r["spot_ratio"],
             },
         )
         # JOB_RUN -> JOB (RUN_OF)
         _add_edge(edges, rid, job_id, "RUN_OF")
-        # JOB -> JOB_RUN (HAS_RUN) [reverse edge]
+        # JOB -> JOB_RUN (HAS_RUN)
         _add_edge(edges, job_id, rid, "HAS_RUN")
 
 
@@ -241,16 +243,16 @@ def _build_compute_usage(
             SELECT
                 compute_usage_id,
                 parent_id,
-                compute_type,
-                sku,
+                parent_type,
+                compute_sku,
                 dbus_consumed,
-                instance_id,
-                instance_type,
-                cost_usd,
+                cluster_id,
+                cluster_instance_type,
+                total_cost,
                 avg_cpu_utilization,
-                max_memory_used_gb,
-                disk_io_wait_time_ms,
-                cloud_market_available,
+                avg_memory_gb,
+                peak_concurrent_users,
+                is_production,
                 usage_date
             FROM compute_usage
         """).fetchall()
@@ -266,16 +268,16 @@ def _build_compute_usage(
             {
                 "compute_usage_id": r["compute_usage_id"],
                 "parent_id": r["parent_id"],
-                "compute_type": r["compute_type"],
-                "sku": r["sku"],
+                "parent_type": r["parent_type"],
+                "compute_sku": r["compute_sku"],
                 "dbus_consumed": r["dbus_consumed"],
-                "instance_id": r["instance_id"],
-                "instance_type": r["instance_type"],
-                "cost_usd": r["cost_usd"],
+                "cluster_id": r["cluster_id"],
+                "cluster_instance_type": r["cluster_instance_type"],
+                "total_cost": r["total_cost"],
                 "avg_cpu_utilization": r["avg_cpu_utilization"],
-                "max_memory_used_gb": r["max_memory_used_gb"],
-                "disk_io_wait_time_ms": r["disk_io_wait_time_ms"],
-                "cloud_market_available": r["cloud_market_available"],
+                "avg_memory_gb": r["avg_memory_gb"],
+                "peak_concurrent_users": r["peak_concurrent_users"],
+                "is_production": r["is_production"],
                 "usage_date": r["usage_date"],
             },
         )
@@ -283,19 +285,12 @@ def _build_compute_usage(
         # Edge: USAGE -> (JOB_RUN | COMPUTE_RESOURCE)
         if parent_key in job_run_ids:
             parent_node_id = f"jobrun::{parent_key}"
-            # child -> parent
             _add_edge(edges, uid, parent_node_id, "USAGE_OF_JOB_RUN")
-            # parent -> child [reverse edge for easier parent->child traversal]
             _add_edge(edges, parent_node_id, uid, "HAS_USAGE")
         elif parent_key in compute_ids:
             parent_node_id = f"compute::{parent_key}"
-            # child -> parent
             _add_edge(edges, uid, parent_node_id, "USAGE_OF_COMPUTE")
-            # parent -> child [reverse edge]
             _add_edge(edges, parent_node_id, uid, "HAS_USAGE")
-        else:
-            # Unknown parent; we keep parent_id only as a property
-            pass
 
 
 def _build_events(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
@@ -304,7 +299,7 @@ def _build_events(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
             SELECT
                 event_id,
                 compute_usage_id,
-                timestamp,
+                event_time,
                 event_type,
                 user_id,
                 details,
@@ -323,7 +318,7 @@ def _build_events(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
             {
                 "event_id": r["event_id"],
                 "compute_usage_id": r["compute_usage_id"],
-                "timestamp": r["timestamp"],
+                "event_time": r["event_time"],
                 "event_type": r["event_type"],
                 "user_id": r["user_id"],
                 "details": r["details"],
@@ -333,21 +328,19 @@ def _build_events(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
 
         # EVENT -> USAGE (ON_USAGE)
         _add_edge(edges, eid, usage_id, "ON_USAGE")
-        # USAGE -> EVENT (HAS_EVENT) [reverse edge]
+        # USAGE -> EVENT (HAS_EVENT)
         _add_edge(edges, usage_id, eid, "HAS_EVENT")
 
         # EVENT -> USER (TRIGGERED_BY), if present
         if r["user_id"]:
             user_node_id = f"user::{r['user_id']}"
             _add_edge(edges, eid, user_node_id, "TRIGGERED_BY")
-            # USER -> EVENT (INITIATED_EVENT) [reverse edge]
             _add_edge(edges, user_node_id, eid, "INITIATED_EVENT")
 
         # EVENT -> EVICTION (ASSOCIATED_WITH)
         if r["eviction_id"]:
-            evict_node_id = f"evict::{r['eviction_id']}"
+            evict_node_id = f"eviction::{r['eviction_id']}"
             _add_edge(edges, eid, evict_node_id, "ASSOCIATED_EVICTION")
-            # EVICTION -> EVENT (HAS_EVENT) [reverse edge]
             _add_edge(edges, evict_node_id, eid, "HAS_EVENT")
 
 
@@ -356,70 +349,58 @@ def _build_evictions(nodes: Dict[str, GraphNode]) -> None:
         rows = conn.execute("""
             SELECT
                 eviction_id,
-                instance_id,
+                cloud_instance_id,
                 eviction_time,
                 cloud_provider_message,
-                eviction_reason_code,
-                instance_reclaim_rate,
-                eviction_policy_used,
-                replacement_on_demand
+                eviction_reason,
+                spot_price,
+                eviction_action,
+                was_retried
             FROM eviction_details
         """).fetchall()
 
     for r in rows:
-        eid = f"evict::{r['eviction_id']}"
+        eid = f"eviction::{r['eviction_id']}"
         _add_node(
             nodes,
             eid,
             "eviction",
             {
                 "eviction_id": r["eviction_id"],
-                "instance_id": r["instance_id"],
+                "cloud_instance_id": r["cloud_instance_id"],
                 "eviction_time": r["eviction_time"],
                 "cloud_provider_message": r["cloud_provider_message"],
-                "eviction_reason_code": r["eviction_reason_code"],
-                "instance_reclaim_rate": r["instance_reclaim_rate"],
-                "eviction_policy_used": r["eviction_policy_used"],
-                "replacement_on_demand": r["replacement_on_demand"],
+                "eviction_reason": r["eviction_reason"],
+                "spot_price": r["spot_price"],
+                "eviction_action": r["eviction_action"],
+                "was_retried": r["was_retried"],
             },
         )
 
 
-def _build_queries(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
+def _build_sql_queries(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
     with _get_conn() as conn:
-        # For classifying parent_id
-        job_run_ids = {
-            row["job_run_id"] for row in conn.execute("SELECT job_run_id FROM job_runs").fetchall()
-        }
-        compute_ids = {
-            row["compute_id"] for row in conn.execute("SELECT compute_id FROM non_job_compute").fetchall()
-        }
-
         rows = conn.execute("""
             SELECT
-                q.query_id,
-                q.parent_id,
-                q.user_id,
-                q.start_time,
-                q.duration_ms,
-                q.warehouse_sku,
-                q.sql_text,
-                q.error_message,
-                u.workspace_id,
-                u.name AS user_name,
-                u.department AS department
-            FROM sql_query_history q
-            LEFT JOIN users_lookup u ON q.user_id = u.user_id
+                query_id,
+                parent_id,
+                user_id,
+                start_time,
+                duration_ms,
+                warehouse_sku,
+                sql_text,
+                error_message
+            FROM sql_query_history
         """).fetchall()
 
     for r in rows:
         qid = f"query::{r['query_id']}"
-        parent_key = r["parent_id"]
+        parent_compute_id = f"compute::{r['parent_id']}"
 
         _add_node(
             nodes,
             qid,
-            "query",
+            "sql_query",
             {
                 "query_id": r["query_id"],
                 "parent_id": r["parent_id"],
@@ -427,67 +408,94 @@ def _build_queries(nodes: Dict[str, GraphNode], edges: List[GraphEdge]) -> None:
                 "start_time": r["start_time"],
                 "duration_ms": r["duration_ms"],
                 "warehouse_sku": r["warehouse_sku"],
-                "sql_text": r["sql_text"],
+                "sql_text": r["sql_text"][:500] if r["sql_text"] else None,  # Truncate for storage
                 "error_message": r["error_message"],
-                "workspace_id": r["workspace_id"],
-                "user_name": r["user_name"],
-                "department": r["department"],
             },
         )
 
-        # QUERY -> USER
+        # QUERY -> COMPUTE_RESOURCE (EXECUTED_ON)
+        _add_edge(edges, qid, parent_compute_id, "EXECUTED_ON")
+        _add_edge(edges, parent_compute_id, qid, "RAN_QUERY")
+
+        # QUERY -> USER (SUBMITTED_BY)
         if r["user_id"]:
             user_node_id = f"user::{r['user_id']}"
-            _add_edge(edges, qid, user_node_id, "EXECUTED_BY")
-            # USER -> QUERY (HAS_QUERY) [reverse edge]
-            _add_edge(edges, user_node_id, qid, "HAS_QUERY")
-
-        # QUERY -> (JOB_RUN | COMPUTE_RESOURCE)
-        if parent_key in job_run_ids:
-            parent_node_id = f"jobrun::{parent_key}"
-            _add_edge(edges, qid, parent_node_id, "EXECUTES_ON_JOB_RUN")
-            # JOB_RUN -> QUERY (HAS_QUERY) [reverse edge]
-            _add_edge(edges, parent_node_id, qid, "HAS_QUERY")
-        elif parent_key in compute_ids:
-            parent_node_id = f"compute::{parent_key}"
-            _add_edge(edges, qid, parent_node_id, "EXECUTES_ON_COMPUTE")
-            # COMPUTE_RESOURCE -> QUERY (HAS_QUERY) [reverse edge]
-            _add_edge(edges, parent_node_id, qid, "HAS_QUERY")
+            _add_edge(edges, qid, user_node_id, "SUBMITTED_BY")
+            _add_edge(edges, user_node_id, qid, "SUBMITTED_QUERY")
 
 
 # ---------------------------------------------------------------------------
-# PUBLIC ENTRYPOINT
+# Main graph builder
 # ---------------------------------------------------------------------------
 
 def build_usage_graph() -> Tuple[Dict[str, GraphNode], List[GraphEdge]]:
     """
-    Build an in-memory graph (nodes + edges) from the SQLite Databricks usage DB.
-
+    Build the complete usage graph from SQLite database.
+    
     Returns:
-        nodes: dict[node_id, GraphNode]
-        edges: list[GraphEdge]
+        (nodes, edges) where:
+        - nodes: dict of node_id -> GraphNode
+        - edges: list of GraphEdge objects
     """
     nodes: Dict[str, GraphNode] = {}
     edges: List[GraphEdge] = []
 
+    print("[graph] Building workspace nodes...")
     _build_workspace(nodes)
+
+    print("[graph] Building user nodes + edges...")
     _build_users(nodes, edges)
+
+    print("[graph] Building job nodes + edges...")
     _build_jobs(nodes, edges)
+
+    print("[graph] Building compute resource nodes + edges...")
     _build_compute_resources(nodes, edges)
+
+    print("[graph] Building job run nodes + edges...")
     _build_job_runs(nodes, edges)
+
+    print("[graph] Building compute usage nodes + edges...")
     _build_compute_usage(nodes, edges)
-    _build_evictions(nodes)
+
+    print("[graph] Building event nodes + edges...")
     _build_events(nodes, edges)
-    _build_queries(nodes, edges)
+
+    print("[graph] Building eviction nodes...")
+    _build_evictions(nodes)
+
+    print("[graph] Building SQL query nodes + edges...")
+    _build_sql_queries(nodes, edges)
+
+    print(f"[graph] Graph built: {len(nodes)} nodes, {len(edges)} edges")
 
     return nodes, edges
 
 
-# Optional: quick CLI test
-if __name__ == "__main__":
+# ---------------------------------------------------------------------------
+# Debug / CLI entry point
+# ---------------------------------------------------------------------------
+
+def _print_graph_summary():
+    """Simple CLI to inspect the graph structure."""
     nodes, edges = build_usage_graph()
-    print(f"Graph built: {len(nodes)} nodes, {len(edges)} edges")
-    by_type: Dict[str, int] = {}
-    for n in nodes.values():
-        by_type[n.type] = by_type.get(n.type, 0) + 1
-    print("Node counts by type:", by_type)
+    
+    print("\n=== NODE TYPE COUNTS ===")
+    type_counts = {}
+    for node in nodes.values():
+        type_counts[node.type] = type_counts.get(node.type, 0) + 1
+    
+    for node_type, count in sorted(type_counts.items()):
+        print(f"  {node_type}: {count}")
+    
+    print("\n=== EDGE TYPE COUNTS ===")
+    edge_counts = {}
+    for edge in edges:
+        edge_counts[edge.type] = edge_counts.get(edge.type, 0) + 1
+    
+    for edge_type, count in sorted(edge_counts.items()):
+        print(f"  {edge_type}: {count}")
+
+
+if __name__ == "__main__":
+    _print_graph_summary()

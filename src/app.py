@@ -184,67 +184,29 @@ def _render_chip_groups(chips: List[Chip], key_prefix: str) -> None:
 
 
 # ============================
-# Report Catalog (Pillars + TODO)
+# Report Catalog (Pillars)
 # ============================
 
-# Active reports are listed by NAME (more convenient than keys).
+# WITH this simplified version:
+
 PILLAR_CATALOG: List[Tuple[str, str, List[str], List[Tuple[str, str]]]] = [
     (
         "Cost Management",
         "Spend, spot exposure, and cost concentration.",
         [
-            "Job Cost",
-            "Total Cost by Compute Type",
+            "Job Cost & Reliability",
+            "Compute Type Analysis",
             "Cost Concentration (Pareto)",
-            "Spot Risk Exposure by Job",
+            "Spot Risk & Evictions",
         ],
-        [
-            ("Cost Anomalies", "Detect jobs/clusters deviating from baseline cost."),
-            ("Cost Efficiency", "$ per successful run / per GB processed / per SLA-hour."),
-            ("Spot Counterfactual", "Estimate on-demand cost vs actual spot outcomes."),
-        ],
+        [],  # Empty TODO list - keeps sidebar clean!
     ),
-    (
-        "Reliability",
-        "Failures, retries, SLA breaches, and long-tail runtime risk.",
-        [],
-        [
-            ("Job Reliability Scorecard", "Success rate, retries, p95 runtime, SLA violations."),
-            ("Failure Pattern Breakdown", "Top failure signatures, categories, and correlations."),
-            ("Fragility Index", "Jobs that barely succeed (high retries / long-tail runtimes)."),
-        ],
-    ),
-    (
-        "Performance & Efficiency",
-        "Runtime regressions and resource efficiency (CPU/memory).",
-        [],
-        [
-            ("Runtime Regression", "Week-over-week p50/p95 runtime shifts by job."),
-            ("Utilization Efficiency", "Under/over-provisioning signals and sizing suggestions."),
-            ("Shuffle/Spill Hotspots", "Spill/GC pressure indicators by workload."),
-        ],
-    ),
-    (
-        "Data Quality",
-        "Freshness, volume drift, and upstream/downstream impact.",
-        [],
-        [
-            ("Freshness Monitor", "Late or missing dataset updates vs expectation."),
-            ("Volume Drift", "Row count drift vs rolling baseline."),
-            ("Blast Radius Map", "Which jobs are affected by upstream data issues."),
-        ],
-    ),
-    (
-        "Resilience",
-        "Recovery, sensitivity to change, and operational robustness.",
-        [],
-        [
-            ("Recovery Time", "Time-to-recover after failure (MTTR) by job."),
-            ("Change Sensitivity", "Breakage correlated with config/code changes."),
-            ("Single Points of Failure", "Jobs without fallback compute or fragile configs."),
-        ],
-    ),
+    # Future pillars can be added here as reports are implemented
 ]
+
+# ============================================================================
+# RESULT: Clean sidebar showing only your 4 implemented Cost Management reports!
+# ============================================================================
 
 # Sidebar-only renames (do NOT change report implementation)
 REPORT_NAME_ALIASES = {
@@ -387,12 +349,6 @@ def _render_sidebar_report_nav(report_map: Dict[str, object]) -> None:
 
             if st.button(label, key=f"nav:{pillar}:{k}"):
                 _select_report(k)
-
-        # TODO reports (disabled)
-        for name, short_desc in todo_items:
-            if q and not matches(name) and not matches(short_desc):
-                continue
-            st.button(f"🕒 {name} (TODO)", key=f"nav:{pillar}:todo:{_safe_slug(name)}", disabled=True)
 
         st.divider()
 

@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List
 
 import pandas as pd
-import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import sqlite3
 
 from src.reports.base import ActionChip, ReportSpec, default_focus_for_selection
@@ -20,14 +21,61 @@ class Selection:
 
 
 COMPUTE_TYPE_COST_SQL = """
+WITH daily_usage AS (
+  SELECT
+    parent_type AS compute_type,
+    usage_date,
+    SUM(total_cost) AS daily_cost,
+    SUM(dbus_consumed) AS daily_dbus,
+    COUNT(*) AS usage_records,
+    AVG(avg_cpu_utilization) AS avg_cpu,
+    COUNT(DISTINCT parent_id) AS unique_entities
+  FROM compute_usage
+  GROUP BY parent_type, usage_date
+),
+type_summary AS (
+  SELECT
+    compute_type,
+    SUM(daily_cost) AS cost_total_usd,
+    SUM(daily_dbus) AS dbus_total,
+    AVG(daily_cost) AS avg_daily_cost,
+    MAX(daily_cost) AS max_daily_cost,
+    MIN(daily_cost) AS min_daily_cost,
+    AVG(avg_cpu) AS avg_cpu_utilization,
+    SUM(usage_records) AS total_usage_records,
+    COUNT(DISTINCT usage_date) AS days_active,
+    AVG(unique_entities) AS avg_active_entities
+  FROM daily_usage
+  GROUP BY compute_type
+)
 SELECT
-  u.compute_type              AS compute_type,
-  SUM(u.cost_usd)             AS cost_total_usd,
-  SUM(u.dbus_consumed)        AS dbus_total,
-  COUNT(*)                    AS usage_records
-FROM compute_usage u
-GROUP BY u.compute_type
+  compute_type,
+  cost_total_usd,
+  dbus_total,
+  avg_daily_cost,
+  max_daily_cost,
+  min_daily_cost,
+  CAST(100.0 * cost_total_usd / NULLIF(SUM(cost_total_usd) OVER (), 0) AS REAL) AS pct_of_total,
+  avg_cpu_utilization,
+  total_usage_records,
+  days_active,
+  avg_active_entities,
+  
+  -- Volatility indicator
+  CAST((max_daily_cost - min_daily_cost) / NULLIF(avg_daily_cost, 0) AS REAL) AS cost_volatility_ratio
+  
+FROM type_summary
 ORDER BY cost_total_usd DESC;
+"""
+
+DAILY_TREND_SQL = """
+SELECT
+  parent_type AS compute_type,
+  usage_date,
+  SUM(total_cost) AS daily_cost
+FROM compute_usage
+GROUP BY parent_type, usage_date
+ORDER BY usage_date;
 """
 
 
@@ -35,6 +83,10 @@ def load_df(db_path: str, filters: Dict[str, Any]) -> pd.DataFrame:
     conn = sqlite3.connect(db_path)
     try:
         df = pd.read_sql_query(COMPUTE_TYPE_COST_SQL, conn)
+        
+        # Also load trend data
+        trend_df = pd.read_sql_query(DAILY_TREND_SQL, conn)
+        df._trend_data = trend_df  # Attach to main df
     finally:
         conn.close()
     return df
@@ -44,30 +96,134 @@ def render_viz(df: pd.DataFrame, filters: Dict[str, Any]) -> None:
     import streamlit as st
 
     if df is None or df.empty:
-        st.warning("'No compute type cost data returned.'")
-        st.caption("Turn on Debug mode to see the SQL, then run it directly in sqlite to inspect results.")
+        st.warning("No compute type cost data returned.")
         return
 
-    df = df.sort_values("cost_total_usd", ascending=True)
+    # Top metrics
+    st.markdown("### 📊 Compute Cost Breakdown")
+    
+    col1, col2, col3 = st.columns(3)
+    total_cost = df['cost_total_usd'].sum()
+    
+    with col1:
+        st.metric("Total Spend", f"${total_cost:,.0f}")
+    with col2:
+        job_pct = df[df['compute_type'] == 'JOB_RUN']['pct_of_total'].sum()
+        st.metric("Job Run %", f"{job_pct:.1f}%")
+    with col3:
+        wh_pct = df[df['compute_type'] == 'SQL_WAREHOUSE']['pct_of_total'].sum()
+        st.metric("Warehouse %", f"{wh_pct:.1f}%")
+    
+    st.markdown("---")
 
-    fig = px.bar(
-        df,
-        y="compute_type",
-        x="cost_total_usd",
-        orientation="h",
-        title="Total Cost by Compute Type (USD)",
-        labels={"cost_total_usd": "Cost (USD)", "compute_type": "Compute Type"},
-        hover_data={
-            "cost_total_usd": ":.2f",
-            "dbus_total": ":.2f",
-            "usage_records": True,
-        },
+    # Main chart: Horizontal bar with CPU utilization overlay
+    df_sorted = df.sort_values('cost_total_usd', ascending=True)
+    
+    fig = make_subplots(
+        rows=1, cols=1,
+        specs=[[{"secondary_y": True}]]
     )
-    fig.update_layout(height=420)
+    
+    # Cost bars
+    fig.add_trace(
+        go.Bar(
+            name='Cost',
+            y=df_sorted['compute_type'],
+            x=df_sorted['cost_total_usd'],
+            orientation='h',
+            marker_color='#2ca02c',
+            text=[f"${x:,.0f} ({p:.0f}%)" 
+                  for x, p in zip(df_sorted['cost_total_usd'], df_sorted['pct_of_total'])],
+            textposition='auto',
+            hovertemplate=(
+                '<b>%{y}</b><br>'
+                'Cost: $%{x:,.2f}<br>'
+                '<extra></extra>'
+            )
+        ),
+        secondary_y=False
+    )
+    
+    # CPU utilization overlay
+    fig.add_trace(
+        go.Scatter(
+            name='Avg CPU',
+            y=df_sorted['compute_type'],
+            x=df_sorted['avg_cpu_utilization'] * 100,  # Convert to percentage
+            mode='markers+text',
+            marker=dict(size=16, color='#d62728', symbol='diamond'),
+            text=[f"{x*100:.0f}%" if pd.notna(x) else 'N/A' 
+                  for x in df_sorted['avg_cpu_utilization']],
+            textposition='middle right',
+            hovertemplate='<b>%{y}</b><br>Avg CPU: %{x:.1f}%<extra></extra>'
+        ),
+        secondary_y=True
+    )
+    
+    fig.update_layout(
+        title="Total Cost by Compute Type (with CPU Utilization)",
+        height=420,
+        showlegend=True,
+        hovermode='closest'
+    )
+    
+    fig.update_xaxes(title_text="Cost (USD)")
+    fig.update_yaxes(title_text="CPU Utilization (%)", range=[0, 100], secondary_y=True)
+    
     st.plotly_chart(fig, use_container_width=True)
-
-    with st.expander("Show underlying data", expanded=False):
-        st.dataframe(df, use_container_width=True)
+    
+    # Trend analysis if available
+    if hasattr(df, '_trend_data'):
+        st.markdown("### 📈 Cost Trend Over Time")
+        
+        trend_df = df._trend_data
+        
+        fig_trend = go.Figure()
+        
+        for compute_type in trend_df['compute_type'].unique():
+            type_data = trend_df[trend_df['compute_type'] == compute_type]
+            fig_trend.add_trace(go.Scatter(
+                x=pd.to_datetime(type_data['usage_date']),
+                y=type_data['daily_cost'],
+                mode='lines+markers',
+                name=compute_type,
+                hovertemplate='%{x|%Y-%m-%d}<br>$%{y:,.2f}<extra></extra>'
+            ))
+        
+        fig_trend.update_layout(
+            title="Daily Cost by Compute Type",
+            xaxis_title="Date",
+            yaxis_title="Daily Cost (USD)",
+            height=350,
+            hovermode='x unified'
+        )
+        
+        st.plotly_chart(fig_trend, use_container_width=True)
+    
+    # Insights table
+    st.markdown("### 📋 Detailed Metrics")
+    
+    display_cols = [
+        'compute_type', 'cost_total_usd', 'pct_of_total', 
+        'avg_daily_cost', 'avg_cpu_utilization', 
+        'cost_volatility_ratio', 'avg_active_entities'
+    ]
+    
+    display_df = df[display_cols].copy()
+    display_df['avg_cpu_utilization'] = (display_df['avg_cpu_utilization'] * 100).round(1)
+    display_df['cost_volatility_ratio'] = display_df['cost_volatility_ratio'].round(2)
+    
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    
+    # Alert on high volatility
+    high_vol = df[df['cost_volatility_ratio'] > 1.5]
+    if not high_vol.empty:
+        st.warning(
+            f"⚠️ **High cost volatility detected:** "
+            f"{', '.join(high_vol['compute_type'].tolist())} "
+            f"show significant daily cost swings. This may indicate "
+            f"irregular workload patterns or inefficient resource usage."
+        )
 
 
 def build_selections(df: pd.DataFrame, filters: Dict[str, Any]) -> List[Selection]:
@@ -77,15 +233,20 @@ def build_selections(df: pd.DataFrame, filters: Dict[str, Any]) -> List[Selectio
     selections: List[Selection] = []
     for row in df.itertuples(index=False):
         compute_type = str(row.compute_type)
+        
+        # Add contextual info to label
+        label = f"{compute_type} (${row.cost_total_usd:,.0f}, {row.pct_of_total:.0f}%)"
+        
         selections.append(
             Selection(
                 entity_type="compute_type",
                 entity_id=compute_type,
-                label=compute_type,
+                label=label,
                 payload={
                     "cost_total_usd": float(row.cost_total_usd),
-                    "dbus_total": float(row.dbus_total) if row.dbus_total is not None else None,
-                    "usage_records": int(row.usage_records) if row.usage_records is not None else None,
+                    "pct_of_total": float(row.pct_of_total),
+                    "avg_cpu_utilization": float(row.avg_cpu_utilization) if pd.notna(row.avg_cpu_utilization) else None,
+                    "cost_volatility_ratio": float(row.cost_volatility_ratio) if pd.notna(row.cost_volatility_ratio) else None,
                 },
             )
         )
@@ -95,39 +256,129 @@ def build_selections(df: pd.DataFrame, filters: Dict[str, Any]) -> List[Selectio
 def build_action_chips(sel: Selection, filters: Dict[str, Any]) -> List[ActionChip]:
     ct = sel.entity_id
     focus = default_focus_for_selection(sel)
+    payload = sel.payload
+    
+    chips = []
 
     if ct == "JOB_RUN":
-        followups = [
-            ("What drives this cost?", "Explain what drives JOB_RUN cost in this environment. Reference job_id=... examples."),
-            ("Where is it concentrated?", "Identify which job_id=... contribute most to JOB_RUN cost and why."),
-            ("Optimization checklist", "Give a short optimization checklist for JOB_RUN spend (capacity, scheduling, utilization, spot ratio)."),
-        ]
+        chips.extend([
+            ActionChip(
+                label="🔍 Top Cost Drivers",
+                prompt=(
+                    f"Analyze JOB_RUN compute usage. "
+                    f"Identify the top 3 job_id values driving cost and explain why. "
+                    f"Include: run frequency, duration, cluster size, and spot ratio."
+                ),
+                focus=focus
+            ),
+            ActionChip(
+                label="💡 Quick Wins",
+                prompt=(
+                    f"Suggest 3 quick optimization wins for JOB_RUN spend: "
+                    f"(1) jobs to right-size, (2) jobs to increase spot ratio, "
+                    f"(3) jobs to reschedule or consolidate."
+                ),
+                focus=focus
+            ),
+            ActionChip(
+                label="⚠️ Reliability Risks",
+                prompt=(
+                    f"Identify JOB_RUN reliability risks: "
+                    f"jobs with high failure rates, frequent retries, or spot evictions. "
+                    f"Recommend mitigations."
+                ),
+                focus=focus
+            ),
+        ])
+        
     elif ct == "SQL_WAREHOUSE":
-        followups = [
-            ("What drives this cost?", "Explain what drives SQL_WAREHOUSE cost in this environment. Reference query_id=... and warehouse usage patterns if available."),
-            ("How to reduce spend", "Provide concrete ways to reduce SQL_WAREHOUSE spend (auto-stop, sizing, concurrency, query optimization)."),
-            ("What to investigate", "Suggest what to investigate next (slow queries, high-frequency dashboards, long-running queries)."),
-        ]
+        chips.extend([
+            ActionChip(
+                label="📊 Usage Patterns",
+                prompt=(
+                    f"Analyze SQL_WAREHOUSE usage patterns. "
+                    f"Identify: (1) peak usage times, (2) idle periods, "
+                    f"(3) warehouses with low utilization or excessive auto-resume cycles."
+                ),
+                focus=focus
+            ),
+            ActionChip(
+                label="💰 Cost Reduction",
+                prompt=(
+                    f"Recommend SQL_WAREHOUSE cost reductions: "
+                    f"right-sizing opportunities, auto-stop tuning, "
+                    f"query optimization candidates, and warehouse consolidation."
+                ),
+                focus=focus
+            ),
+            ActionChip(
+                label="🐌 Performance Issues",
+                prompt=(
+                    f"Identify SQL_WAREHOUSE performance issues: "
+                    f"slow queries, warehouse queuing, undersized warehouses. "
+                    f"Suggest specific actions."
+                ),
+                focus=focus
+            ),
+        ])
+        
     elif ct == "APC_CLUSTER":
-        followups = [
-            ("What is this used for?", "Explain what APC_CLUSTER represents here and typical workload patterns."),
-            ("Cost drivers", "Explain key cost drivers for APC_CLUSTER usage and how to control them."),
-            ("What to investigate", "Suggest next drill-downs and what signals indicate waste or inefficiency."),
-        ]
+        chips.extend([
+            ActionChip(
+                label="🔍 What Is This Used For?",
+                prompt=(
+                    f"Explain APC_CLUSTER usage in this environment. "
+                    f"Identify: typical workloads, primary users, "
+                    f"and whether this represents ad-hoc analysis or production pipelines."
+                ),
+                focus=focus
+            ),
+            ActionChip(
+                label="💸 Cost Controls",
+                prompt=(
+                    f"Recommend APC_CLUSTER cost controls: "
+                    f"auto-termination policies, instance pool usage, "
+                    f"cluster policies, and migration to job-based workflows."
+                ),
+                focus=focus
+            ),
+            ActionChip(
+                label="👤 User Behavior",
+                prompt=(
+                    f"Analyze APC_CLUSTER user behavior. "
+                    f"Identify users with highest usage, idle clusters, "
+                    f"and opportunities for training or governance."
+                ),
+                focus=focus
+            ),
+        ])
     else:
-        followups = [
-            ("Overview", f"Tell me more about compute usage of type {ct}. Explain typical workloads and primary cost drivers."),
-            ("Optimization levers", f"Tell me more about compute usage of type {ct}. List common optimization levers and tradeoffs."),
-            ("Where to look next", f"Tell me more about compute usage of type {ct}. Recommend the next drill-down analyses."),
-        ]
+        chips.extend([
+            ActionChip(
+                label="📋 Overview",
+                prompt=(
+                    f"Tell me more about compute usage of type {ct}. "
+                    f"Explain typical workloads and primary cost drivers."
+                ),
+                focus=focus
+            ),
+            ActionChip(
+                label="💡 Optimization",
+                prompt=(
+                    f"Suggest optimization opportunities for {ct} usage. "
+                    f"Include: configuration tuning, scheduling, and governance policies."
+                ),
+                focus=focus
+            ),
+        ])
 
-    return [ActionChip(label=l, prompt=p, focus=focus) for (l, p) in followups]
+    return chips
 
 
 REPORT = ReportSpec(
     key="compute_type_cost",
-    name="Total Cost by Compute Type",
-    description="Compare spend across JOB_RUN, SQL_WAREHOUSE, and other compute types.",
+    name="Compute Type Analysis",
+    description="Compare spend across compute types. Identify trends and optimization opportunities.",
     load_df=load_df,
     render_viz=render_viz,
     build_selections=build_selections,

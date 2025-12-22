@@ -1,137 +1,193 @@
--- Converted DDL Script for Databricks Usage Monitoring Tables
--- Target Database: SQLite (File-based)
--- Note: 'USE usage_data;' and TBLPROPERTIES are removed.
+-- Enhanced SQLite DDL for Databricks Usage Copilot
+-- Supports realistic operational scenarios with proper schema
 
 -- --------------------------------------------------------------------------------------
--- Lookup Tables (L1, L2, L3)
+-- 1. Workspace / Organizational Context
 -- --------------------------------------------------------------------------------------
 
--- Table L1: users_lookup (Needed for linking queries/events to users)
-CREATE TABLE IF NOT EXISTS users_lookup (
-    user_id                 TEXT PRIMARY KEY NOT NULL, -- STRING -> TEXT, PRIMARY KEY declared inline
-    name                    TEXT NOT NULL,
-    workspace_id           TEXT NOT NULL, -- FOREIGN KEY linking user to the owning team.
-    department              TEXT
-    -- Note: Databricks style comments are kept, but no functional PRIMARY KEY constraint here
-    -- Note: PRIMARY KEY constraint is declared inline above: user_id TEXT PRIMARY KEY NOT NULL
-);
-
-
--- Table L2: instance_pools (Needed for linking job runs to pool configuration)
-CREATE TABLE IF NOT EXISTS instance_pools (
-    instance_pool_id        TEXT PRIMARY KEY NOT NULL,
-    pool_name               TEXT NOT NULL,
-    pool_instance_type      TEXT, -- STRING -> TEXT
-    min_size                INTEGER,
-    max_size                INTEGER,
-    auto_termination_mins   INTEGER
-);
-
-
--- Table L3: non_job_compute (For APC Clusters, SQL Warehouses, etc.)
-CREATE TABLE IF NOT EXISTS non_job_compute (
-    compute_id              TEXT PRIMARY KEY NOT NULL,
-    compute_name            TEXT NOT NULL,
-    compute_type            TEXT NOT NULL, -- APC_CLUSTER or SQL_WAREHOUSE.
-    workspace_id           TEXT -- Owning team.
-);
-
-
--- --------------------------------------------------------------------------------------
--- Core Data Tables (1-7)
--- --------------------------------------------------------------------------------------
-
--- Table 1: workspace (Organizational Unit / Team)
 CREATE TABLE IF NOT EXISTS workspace (
-    workspace_id           TEXT PRIMARY KEY NOT NULL,
-    name                    TEXT NOT NULL,
-    cost_center_code        TEXT,
-    description             TEXT -- Vector Embedding Candidate.
+    workspace_id        TEXT PRIMARY KEY,
+    workspace_name      TEXT NOT NULL,
+    account_id          TEXT,
+    description         TEXT
 );
 
+CREATE TABLE IF NOT EXISTS users_lookup (
+    user_id             TEXT PRIMARY KEY,
+    name                TEXT NOT NULL,
+    workspace_id        TEXT NOT NULL,
+    department          TEXT,
+    FOREIGN KEY (workspace_id) REFERENCES workspace(workspace_id)
+);
 
--- Table 2: jobs (Job Definitions)
+-- --------------------------------------------------------------------------------------
+-- 2. Compute Resources
+-- --------------------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS instance_pools (
+    instance_pool_id            TEXT PRIMARY KEY,
+    pool_name                   TEXT NOT NULL,
+    pool_instance_type          TEXT NOT NULL,
+    min_size                    INTEGER DEFAULT 0,
+    max_size                    INTEGER DEFAULT 10,
+    auto_termination_mins       INTEGER DEFAULT 30
+);
+
+CREATE TABLE IF NOT EXISTS non_job_compute (
+    compute_id          TEXT PRIMARY KEY,
+    compute_name        TEXT NOT NULL,
+    compute_type        TEXT NOT NULL CHECK (compute_type IN ('SQL_WAREHOUSE', 'APC_CLUSTER')),
+    workspace_id        TEXT NOT NULL,
+    FOREIGN KEY (workspace_id) REFERENCES workspace(workspace_id)
+);
+
+-- --------------------------------------------------------------------------------------
+-- 3. Jobs and Job Runs
+-- --------------------------------------------------------------------------------------
+
 CREATE TABLE IF NOT EXISTS jobs (
-    job_id                  TEXT PRIMARY KEY NOT NULL,
-    workspace_id           TEXT NOT NULL, -- FOREIGN KEY linking job to the owning team.
-    job_name                TEXT NOT NULL,
-    description             TEXT, -- Vector Embedding Candidate.
-    tags                    TEXT -- ARRAY<STRING> changed to TEXT (JSON array string).
+    job_id              TEXT PRIMARY KEY,
+    workspace_id        TEXT NOT NULL,
+    job_name            TEXT NOT NULL,
+    description         TEXT,
+    tags                TEXT,  -- JSON array of tags
+    FOREIGN KEY (workspace_id) REFERENCES workspace(workspace_id)
 );
 
-
--- Table 3: job_runs (Job Executions and Compute Config)
 CREATE TABLE IF NOT EXISTS job_runs (
-    job_run_id              TEXT PRIMARY KEY NOT NULL,
-    job_id                  TEXT NOT NULL, -- FOREIGN KEY linking run back to the job definition.
-    start_time              DATETIME NOT NULL, -- TIMESTAMP -> DATETIME (SQLite can store as TEXT/REAL/INTEGER)
-    end_time                DATETIME,
-    duration_ms             INTEGER, -- LONG -> INTEGER (SQLite default is 64-bit)
-    run_status              TEXT NOT NULL, -- SUCCESS, FAILED, CANCELED.
-    error_summary           TEXT, -- Vector Embedding Candidate.
-    driver_instance_type    TEXT,
-    worker_instance_type    TEXT,
-    is_fleet_cluster        INTEGER, -- BOOLEAN -> INTEGER (0 or 1)
-    instance_pool_id        TEXT, -- FOREIGN KEY to instance_pools.
-    min_nodes               INTEGER,
-    max_nodes               INTEGER,
-    fixed_nodes             INTEGER,
-    is_autoscaling_enabled  INTEGER, -- BOOLEAN -> INTEGER (0 or 1)
-    spot_instance_ratio     REAL -- DECIMAL(3, 2) -> REAL (floating point)
+    job_run_id                  TEXT PRIMARY KEY,
+    job_id                      TEXT NOT NULL,
+    start_time                  TEXT NOT NULL,  -- ISO 8601 datetime
+    end_time                    TEXT,           -- ISO 8601 datetime
+    duration_ms                 INTEGER,
+    run_status                  TEXT NOT NULL CHECK (run_status IN ('SUCCESS', 'FAILED', 'SKIPPED', 'RUNNING')),
+    error_summary               TEXT,           -- Error message for failed runs
+    driver_instance_type        TEXT,
+    worker_instance_type        TEXT,
+    is_fleet_cluster            INTEGER DEFAULT 0,
+    instance_pool_id            TEXT,
+    min_nodes                   INTEGER,
+    max_nodes                   INTEGER,
+    fixed_nodes                 INTEGER,
+    is_autoscaling_enabled      INTEGER DEFAULT 0,
+    spot_ratio                  REAL DEFAULT 0.0,
+    FOREIGN KEY (job_id) REFERENCES jobs(job_id),
+    FOREIGN KEY (instance_pool_id) REFERENCES instance_pools(instance_pool_id)
 );
 
+-- --------------------------------------------------------------------------------------
+-- 4. Compute Usage (DBUs and Cost)
+-- --------------------------------------------------------------------------------------
 
--- Table 4: compute_usage (Cost and Usage Metrics)
 CREATE TABLE IF NOT EXISTS compute_usage (
-    compute_usage_id        TEXT PRIMARY KEY NOT NULL,
-    parent_id               TEXT NOT NULL, -- Links to job_run_id OR compute_id.
-    compute_type            TEXT NOT NULL, -- JOB_RUN, APC_CLUSTER, SQL_WAREHOUSE.
-    sku                     TEXT NOT NULL,
-    dbus_consumed           REAL NOT NULL, -- DECIMAL(18, 4) -> REAL
-    instance_id             TEXT, -- The actual cloud VM Instance ID used.
-    instance_type           TEXT,
-    cost_usd                REAL NOT NULL, -- DECIMAL(18, 4) -> REAL
-    avg_cpu_utilization     REAL, -- DECIMAL(4, 3) -> REAL
-    max_memory_used_gb      REAL, -- DECIMAL(18, 2) -> REAL
-    disk_io_wait_time_ms    INTEGER, -- LONG -> INTEGER
-    cloud_market_available  INTEGER, -- BOOLEAN -> INTEGER (0 or 1)
-    usage_date              TEXT NOT NULL -- DATE -> TEXT (YYYY-MM-DD format)
+    compute_usage_id            TEXT PRIMARY KEY,
+    parent_id                   TEXT NOT NULL,  -- job_run_id or compute_id
+    parent_type                 TEXT NOT NULL CHECK (parent_type IN ('JOB_RUN', 'SQL_WAREHOUSE', 'APC_CLUSTER')),
+    compute_sku                 TEXT NOT NULL,
+    dbus_consumed               REAL NOT NULL,
+    cluster_id                  TEXT,
+    cluster_instance_type       TEXT,
+    total_cost                  REAL,
+    avg_cpu_utilization         REAL,
+    avg_memory_gb               REAL,
+    peak_concurrent_users       INTEGER,
+    is_production               INTEGER DEFAULT 0,
+    usage_date                  TEXT NOT NULL  -- YYYY-MM-DD
 );
 
+CREATE INDEX IF NOT EXISTS idx_compute_usage_parent ON compute_usage(parent_id, parent_type);
+CREATE INDEX IF NOT EXISTS idx_compute_usage_date ON compute_usage(usage_date);
+CREATE INDEX IF NOT EXISTS idx_compute_usage_cost ON compute_usage(total_cost DESC);
 
--- Table 5: eviction_details
-CREATE TABLE IF NOT EXISTS eviction_details (
-    eviction_id             TEXT PRIMARY KEY NOT NULL,
-    instance_id             TEXT NOT NULL,
-    eviction_time           DATETIME NOT NULL, -- TIMESTAMP -> DATETIME
-    cloud_provider_message  TEXT, -- Vector Embedding Candidate.
-    eviction_reason_code    TEXT,
-    instance_reclaim_rate   REAL, -- DECIMAL(4, 3) -> REAL
-    eviction_policy_used    TEXT,
-    replacement_on_demand   INTEGER -- BOOLEAN -> INTEGER (0 or 1)
-);
+-- --------------------------------------------------------------------------------------
+-- 5. Events (Lifecycle, Evictions, Autoscaling)
+-- --------------------------------------------------------------------------------------
 
-
--- Table 6: events (Diagnostic Logs and Audit Events)
 CREATE TABLE IF NOT EXISTS events (
-    event_id                TEXT PRIMARY KEY NOT NULL,
-    compute_usage_id        TEXT NOT NULL, -- FOREIGN KEY linking event to the consuming resource.
-    timestamp               DATETIME NOT NULL, -- TIMESTAMP -> DATETIME
-    event_type              TEXT NOT NULL, -- CLUSTER_START, CLUSTER_FAILURE, AUDIT_LOGIN, SPOT_EVICTION.
-    user_id                 TEXT, -- FOREIGN KEY to users_lookup.
-    details                 TEXT, -- Full raw event log, stack trace (Vector Embedding Candidate).
-    eviction_id             TEXT -- FOREIGN KEY to eviction_details if event_type is SPOT_EVICTION.
+    event_id                    TEXT PRIMARY KEY,
+    compute_usage_id            TEXT NOT NULL,
+    event_time                  TEXT NOT NULL,  -- ISO 8601 datetime
+    event_type                  TEXT NOT NULL CHECK (event_type IN (
+        'CLUSTER_START', 
+        'CLUSTER_TERMINATE', 
+        'SPOT_EVICTION', 
+        'AUTOSCALING',
+        'CONFIG_CHANGE'
+    )),
+    user_id                     TEXT,
+    details                     TEXT,
+    eviction_id                 TEXT,  -- Reference to eviction_details if applicable
+    FOREIGN KEY (user_id) REFERENCES users_lookup(user_id)
 );
 
+CREATE INDEX IF NOT EXISTS idx_events_time ON events(event_time);
+CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
 
--- Table 7: sql_query_history (Optimization Target)
+-- --------------------------------------------------------------------------------------
+-- 6. Eviction Details (Spot Instance Terminations)
+-- --------------------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS eviction_details (
+    eviction_id                 TEXT PRIMARY KEY,
+    cloud_instance_id           TEXT NOT NULL,
+    eviction_time               TEXT NOT NULL,  -- ISO 8601 datetime
+    cloud_provider_message      TEXT,
+    eviction_reason             TEXT CHECK (eviction_reason IN (
+        'CAPACITY_CHANGE',
+        'PRICE_CHANGE',
+        'INSTANCE_FAILURE',
+        'MAINTENANCE'
+    )),
+    spot_price                  REAL,
+    eviction_action             TEXT CHECK (eviction_action IN ('STOP_DEALLOCATE', 'DELETE')),
+    was_retried                 INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_eviction_time ON eviction_details(eviction_time);
+
+-- --------------------------------------------------------------------------------------
+-- 7. SQL Query History (Ad-hoc Warehouse Usage)
+-- --------------------------------------------------------------------------------------
+
 CREATE TABLE IF NOT EXISTS sql_query_history (
-    query_id                TEXT PRIMARY KEY NOT NULL,
-    parent_id               TEXT NOT NULL, -- Links to job_run_id or compute_id (SQL Warehouse).
-    user_id                 TEXT NOT NULL, -- FOREIGN KEY to users_lookup.
-    start_time              DATETIME NOT NULL, -- TIMESTAMP -> DATETIME
-    duration_ms             INTEGER, -- LONG -> INTEGER
-    warehouse_sku           TEXT,
-    sql_text                TEXT NOT NULL, -- The complete SQL text of the query (Vector Embedding Candidate).
-    error_message           TEXT -- Detailed error message if the query failed (Vector Embedding Candidate).
+    query_id                    TEXT PRIMARY KEY,
+    parent_id                   TEXT NOT NULL,  -- warehouse compute_id
+    user_id                     TEXT NOT NULL,
+    start_time                  TEXT NOT NULL,  -- ISO 8601 datetime
+    duration_ms                 INTEGER,
+    warehouse_sku               TEXT,
+    sql_text                    TEXT,
+    error_message               TEXT,
+    FOREIGN KEY (parent_id) REFERENCES non_job_compute(compute_id),
+    FOREIGN KEY (user_id) REFERENCES users_lookup(user_id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_sql_history_user ON sql_query_history(user_id);
+CREATE INDEX IF NOT EXISTS idx_sql_history_time ON sql_query_history(start_time);
+
+-- --------------------------------------------------------------------------------------
+-- 8. Helper Table: Date Series (for generating continuous date ranges)
+-- --------------------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS date_series (
+    date TEXT PRIMARY KEY  -- YYYY-MM-DD format
+);
+
+-- --------------------------------------------------------------------------------------
+-- Schema Validation
+-- --------------------------------------------------------------------------------------
+
+select '';
+select  '=========================================';
+select  'SCHEMA CREATED SUCCESSFULLY';
+select  '=========================================';
+select  '';
+select  'Tables created:';
+SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;
+
+select  '';
+select  'Indexes created:';
+SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%' ORDER BY name;
+
+select  '';
+select  '=========================================';
