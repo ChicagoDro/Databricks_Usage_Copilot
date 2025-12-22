@@ -9,8 +9,8 @@ from typing import Dict, List, Optional, Tuple
 import streamlit as st
 
 from src.rag_context_aware_prompts.chat_orchestrator import DatabricksUsageAssistant
-from src.rag_context_aware_prompts.reports.base import SelectionLike
-from src.rag_context_aware_prompts.reports.registry import get_reports, get_report_map, get_default_report_key
+from src.reports.base import SelectionLike
+from src.reports.registry import get_reports, get_report_map, get_default_report_key
 
 
 # ============================
@@ -198,6 +198,7 @@ PILLAR_CATALOG: List[Tuple[str, str, List[str], List[Tuple[str, str]]]] = [
             "Compute Type Analysis",
             "Cost Concentration (Pareto)",
             "Spot Risk & Evictions",
+            "Cost Anomaly Detection",
         ],
         [],  # Empty TODO list - keeps sidebar clean!
     ),
@@ -408,7 +409,7 @@ def init_state() -> None:
         st.session_state.debug_mode = False
 
     if "db_path" not in st.session_state:
-        repo_root = Path(__file__).resolve().parents[2]
+        repo_root = Path(__file__).resolve().parents[1]
         default_db = repo_root / "data" / "usage_rag_data.db"
         st.session_state.db_path = os.getenv("DB_PATH", str(default_db))
 

@@ -26,7 +26,7 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
 
-from src.rag_context_aware_prompts.config import PROJECT_ROOT
+from src.config import PROJECT_ROOT
 from src.rag_context_aware_prompts.ingest_embed_index import get_embeddings
 from src.rag_context_aware_prompts.graph_model import build_usage_graph, GraphNode, GraphEdge
 

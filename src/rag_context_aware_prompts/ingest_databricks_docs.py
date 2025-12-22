@@ -31,7 +31,7 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 
-from src.rag_context_aware_prompts.config import (
+from src.config import (
     LLM_PROVIDER,
     CHUNK_SIZE,
     CHUNK_OVERLAP,

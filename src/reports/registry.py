@@ -3,11 +3,12 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from src.rag_context_aware_prompts.reports.base import ReportSpec
-from src.rag_context_aware_prompts.reports.job_cost import REPORT as JOB_COST_REPORT
-from src.rag_context_aware_prompts.reports.compute_type_cost import REPORT as COMPUTE_TYPE_COST_REPORT
-from src.rag_context_aware_prompts.reports.job_cost_pareto import REPORT as JOB_COST_PARETO_REPORT
-from src.rag_context_aware_prompts.reports.spot_risk_by_job import REPORT as SPOT_RISK_BY_JOB_REPORT
+from src.reports.base import ReportSpec
+from src.reports.job_cost import REPORT as JOB_COST_REPORT
+from src.reports.compute_type_cost import REPORT as COMPUTE_TYPE_COST_REPORT
+from src.reports.job_cost_pareto import REPORT as JOB_COST_PARETO_REPORT
+from src.reports.spot_risk_by_job import REPORT as SPOT_RISK_BY_JOB_REPORT
+from src.reports.anomaly_detection import REPORT as ANOMALY_DETECTION_REPORT
 
 
 def get_reports() -> List[ReportSpec]:
@@ -20,6 +21,7 @@ def get_reports() -> List[ReportSpec]:
         COMPUTE_TYPE_COST_REPORT,
         JOB_COST_PARETO_REPORT,
         SPOT_RISK_BY_JOB_REPORT,
+        ANOMALY_DETECTION_REPORT,
     ]
 
 

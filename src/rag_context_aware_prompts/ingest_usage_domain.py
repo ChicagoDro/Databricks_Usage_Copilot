@@ -4,7 +4,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
-from src.rag_context_aware_prompts.config import USAGE_DB_PATH
+from src.config import USAGE_DB_PATH
 
 
 # ---------------------------------------------------------------------------

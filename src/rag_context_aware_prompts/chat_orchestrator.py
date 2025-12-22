@@ -12,7 +12,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-from src.rag_context_aware_prompts.config import (
+from src.config import (
     LLM_PROVIDER,
     get_chat_model_name,
     get_embed_model_name,

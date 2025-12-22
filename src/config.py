@@ -10,7 +10,7 @@ load_dotenv()
 # --------------------------------------------------------------------------------------
 
 # Root of the repo (…/AI-Portfolio)
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # New Databricks usage domain (SQLite DB)
 USAGE_DB_PATH = PROJECT_ROOT / "data" / "usage_rag_data.db"
@@ -71,6 +71,17 @@ RETRIEVER_K = int(os.getenv("RETRIEVER_K", "4"))
 # Temperature / style knobs for the chat model
 DEFAULT_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
 
+# --------------------------------------------------------------------------------------
+# ML Configuration (NEW!)
+# --------------------------------------------------------------------------------------
+# Anomaly Detection
+ANOMALY_Z_THRESHOLD = float(os.getenv("ANOMALY_Z_THRESHOLD", "3.0"))
+ANOMALY_MIN_HISTORY_DAYS = int(os.getenv("ANOMALY_MIN_HISTORY_DAYS", "14"))
+ANOMALY_ROLLING_WINDOW_DAYS = int(os.getenv("ANOMALY_ROLLING_WINDOW_DAYS", "7"))
+
+# Forecasting
+FORECAST_SEASONAL_PERIOD = int(os.getenv("FORECAST_SEASONAL_PERIOD", "7"))  # Weekly
+FORECAST_TREND_WINDOW = int(os.getenv("FORECAST_TREND_WINDOW", "14"))
 
 # --------------------------------------------------------------------------------------
 # Small helpers for provider routing (optional but handy)
