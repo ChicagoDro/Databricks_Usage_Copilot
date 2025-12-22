@@ -10,13 +10,13 @@ load_dotenv()
 # --------------------------------------------------------------------------------------
 
 # Root of the repo (…/AI-Portfolio)
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 # New Databricks usage domain (SQLite DB)
 USAGE_DB_PATH = PROJECT_ROOT / "data" / "usage_rag_data.db"
 
 # Where to store vector indexes
-INDEX_DIR = PROJECT_ROOT / "indices"
+INDEX_DIR = PROJECT_ROOT / "indexes"
 
 USAGE_FAISS_INDEX_PATH = INDEX_DIR / "databricks_usage_faiss"
 

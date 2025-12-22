@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import sqlite3
 
-from src.reports.base import ActionChip, ReportSpec, default_focus_for_selection
+from src.rag_context_aware_prompts.reports.base import ActionChip, ReportSpec, default_focus_for_selection
 
 
 @dataclass(frozen=True)

@@ -12,7 +12,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
-from src.config import (
+from src.rag_context_aware_prompts.config import (
     LLM_PROVIDER,
     get_chat_model_name,
     get_embed_model_name,
@@ -20,7 +20,7 @@ from src.config import (
     DOCS_FAISS_INDEX_PATH,
     DOCS_RETRIEVER_K,
 )
-from src.graph_retriever import GraphRAGRetriever
+from src.rag_context_aware_prompts.graph_retriever import GraphRAGRetriever
 
 
 # ---------------------------------------------------------------------------

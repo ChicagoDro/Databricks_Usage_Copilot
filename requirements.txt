@@ -41,3 +41,7 @@ plotly
 # Web scraping
 requests
 beautifulsoup4
+
+# Only need to add to requirements.txt:
+scikit-learn  # Already likely included for embeddings
+statsmodels   # For time series decomposition (optional)

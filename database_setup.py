@@ -3,8 +3,8 @@ import os
 
 # --- Configuration ---
 DATABASE_FILE = './data/usage_rag_data.db'
-DDL_SCRIPT_FILE = './data/create_usage_tables.sql' # Your converted DDL from the first step
-DML_SCRIPT_FILE = './data/seed_usage_tables.sql'   # Your converted ANSI SQL DML (seeding)
+DDL_SCRIPT_FILE = './sql/create_usage_tables.sql' # Your converted DDL from the first step
+DML_SCRIPT_FILE = './sql/seed_usage_tables.sql'   # Your converted ANSI SQL DML (seeding)
 
 def setup_database(db_file: str, ddl_script: str, dml_script: str):
     """

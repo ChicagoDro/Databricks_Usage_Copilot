@@ -8,13 +8,13 @@ Ingestion script for the Databricks-usage RAG domain.
 
 Usage (from repo root):
 
-    python -m src.Databricks_Usage.ingest_embed_index
+    python -m src.rag_context_aware_prompts.Databricks_Usage.ingest_embed_index
     # or:
     python src/Databricks_Usage/ingest_embed_index.py
 
 You can override paths with CLI flags if you want:
 
-    python -m src.Databricks_Usage.ingest_embed_index \
+    python -m src.rag_context_aware_prompts.Databricks_Usage.ingest_embed_index \
         --db-path data/databricks_usage/usage.db \
         --index-dir indexes \
         --index-name usage_faiss

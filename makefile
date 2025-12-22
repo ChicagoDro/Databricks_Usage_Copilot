@@ -16,7 +16,7 @@ db:
 # ------------------------------------------------------
 index:
 	@echo "📦 Building FAISS vector index..."
-	python -m src.ingest_embed_index
+	python -m src.rag_context_aware_prompts.ingest_embed_index
 	@echo "✔️  FAISS index built."
 
 # ------------------------------------------------------
@@ -33,7 +33,7 @@ app:
 
 docs:
 	@echo "📘 Building Databricks Compute docs index..."
-	python -m src.ingest_databricks_docs
+	python -m src.rag_context_aware_prompts.ingest_databricks_docs
 	@echo "✔️  Docs index built."
 
 # ------------------------------------------------------

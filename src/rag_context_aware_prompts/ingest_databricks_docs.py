@@ -15,7 +15,7 @@ This script:
 5) Embeds + saves a FAISS index to DOCS_FAISS_INDEX_PATH
 
 Run:
-    python -m src.ingest_databricks_docs
+    python -m src.rag_context_aware_prompts.ingest_databricks_docs
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 
-from src.config import (
+from src.rag_context_aware_prompts.config import (
     LLM_PROVIDER,
     CHUNK_SIZE,
     CHUNK_OVERLAP,
