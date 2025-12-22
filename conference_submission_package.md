@@ -264,18 +264,15 @@ No prior knowledge of Databricks required—the patterns apply universally.
 - Graph-based context naturally supports multi-hop reasoning
 
 **What Was Hard** (2 min)
-- Designing the right report taxonomy (what contexts to make available)
-- Balancing explicit anchoring vs natural conversation flow
-- Teaching users to "select first, then ask" instead of pure chat
+- Designing the corpus routing (which corpus should serve as the RAG source based on request)
 - Context clearing UX: when to auto-clear vs persist
 - Graph context can get large—need strategies for context window limits
 
 **When Conversation-Based Context IS Better** (1 min)
-- Open-ended exploration without clear entities ("tell me about...")
+- Open-ended exploration without clear entities ("tell me about pooling in general...")
 - Learning and education (context should flow naturally)
-- Creative brainstorming and ideation
 - Quick one-off questions where anchoring is overhead
-- **The key**: Know when you need deterministic context vs fluid context
+- **The key**: Know when you need deterministic context vs fluid context but still limit the source to approved corpuses to limit hallucinations.
 
 ---
 
