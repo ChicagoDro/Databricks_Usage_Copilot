@@ -16,7 +16,6 @@ Chicago, IL
 
 **Databricks Usage Copilot** is a deterministic, report-driven AI assistant for analyzing cost, reliability, performance, and operational risk in Data Engineering workloads.
 
-
 Unlike chat-first copilots, this project is **report-driven and deterministic**:
 
 * SQL defines the facts
@@ -30,10 +29,10 @@ The result is an **enterprise-grade AI copilot** that is explainable, debuggable
 
 ## Core Design Principle
 
-> **Don’t let the model guess what the user meant.**
+> **Don't let the model guess what the user meant.**
 > Use deterministic reports to define intent, and use the LLM to explain the result with context.
 
-This project deliberately avoids “blank chat box” UX. Instead:
+This project deliberately avoids "blank chat box" UX. Instead:
 
 * **Reports** define what is being analyzed
 * **Clicks** define what needs explanation
@@ -42,55 +41,51 @@ This project deliberately avoids “blank chat box” UX. Instead:
 
 ---
 
-## Deterministic Reports (Not Chat Guessing)
+## Key Features
 
-Each report is powered by:
+### ✅ Deterministic Reports
+Each report is powered by explicit SQL, known semantics, and predefined drill actions:
 
-* Explicit SQL
-* Known semantic meaning
-* Defined entity mappings
-* Predefined drill actions
+* **Job Cost & Reliability** – Stacked bars showing spot vs on-demand ratio, reliability overlay
+* **Cost Concentration (Pareto)** – Cumulative cost curve highlighting the 20% driving 80%
+* **Compute Type Analysis** – Cross-type comparison (Jobs, Warehouses, Clusters)
+* **Spot Risk & Evictions** – Risk matrix plotting cost vs spot exposure
+* **Cost Anomaly Detection** – Statistical anomaly detection with agent-based investigation
 
-Current reports include:
+Reports are the **interface**. AI is the **commentary layer**.
 
-* **Job Cost**
-  Stacked horizontal bars by job, segmented by spot vs on-demand ratio
+### ✅ Context-Aware Action Chips
+Rather than free-form prompting, the UI presents **deterministic action chips** organized by taxonomy:
 
-* **Total Cost by Compute Type**
-  Sorted bar chart (avoids misleading pie charts)
-
-* **Pareto Job Cost Concentration**
-  Cumulative cost contribution curve highlighting top drivers
-
-* **Spot Risk Exposure by Job**
-  Ranks jobs by spot ratio and eviction signals
-
-Reports are the **interface**.
-AI is the **commentary layer**.
-
----
-
-## Deterministic Action Chips (Key Differentiator)
-
-A core design principle of Databricks Usage Copilot is that **AI actions are deterministic, contextual, and intentional**.
-
-Rather than free-form prompting, the UI presents **action chips** that are:
-
-- **Deterministic** – each chip maps to a fixed prompt template
-- **Context-aware** – prompts are parameterized by the selected entity (job, cluster, warehouse, etc.)
-- **Stable** – chip identity and ordering do not change across runs
-- **Explainable** – users can always inspect the exact prompt that was executed
-
-### Chip Taxonomy
-
-Action chips are organized into four conceptual lanes that mirror how platform operators think:
-
-- **Understand** – What is this? What does “good” look like?
+- **Understand** – What is this? What does "good" look like?
 - **Diagnose** – Why is this happening? What changed?
 - **Optimize** – What should I change to improve cost, reliability, or performance?
 - **Monitor** – How do I validate improvements and prevent regressions?
 
-This structure aligns directly with the pillars of data engineering (cost, reliability, performance, resilience, data quality) and provides a repeatable “operational playbook” for each report and selection.
+Chips are:
+- **Deterministic** – each chip maps to a fixed prompt template
+- **Context-aware** – prompts parameterized by selected entity (job, cluster, warehouse)
+- **Conditional** – only appear when relevant (e.g., "Why a spike?" only for high-deviation entities)
+- **Stable** – chip identity doesn't change across runs
+- **Explainable** – users can inspect the exact prompt executed
+
+### ✅ Interactive Filtering & Export
+* **Date range filters** with quick-select buttons (Last 7d, 30d, 90d)
+* **Workspace filters** for multi-tenant analysis
+* **CSV export** from any report
+* **Loading indicators** for better UX
+* **Auto-refresh** data cache
+
+### ✅ Dual-Corpus RAG
+* **Telemetry corpus** → Your usage data, reports, and graph context
+* **Databricks docs corpus** → Official product documentation with real citations
+
+When documentation is used, answers include deterministic **Sources** sections:
+```
+Sources (Databricks Docs):
+- Spot Instances — https://docs.databricks.com/...
+- Autoscaling Clusters — https://docs.databricks.com/...
+```
 
 ---
 
@@ -111,7 +106,7 @@ This structure aligns directly with the pillars of data engineering (cost, relia
             ▼
 ┌─────────────────────────┐
 │ Prompt Builder          │
-│ “Tell me more about…”   │
+│ "Tell me more about…"   │
 └───────────┬─────────────┘
             │
             ▼
@@ -122,6 +117,7 @@ This structure aligns directly with the pillars of data engineering (cost, relia
 ```
 
 ---
+
 ## Primary Knowledge Corpus: Usage Graph
 
 The first and most important knowledge corpus in Databricks Usage Copilot is a **usage graph** that models how Databricks workloads actually operate in practice.
@@ -181,44 +177,9 @@ This intermediate graph representation acts as a semantic compression layer, tur
 
 The current implementation uses a lightweight, local graph representation built from SQLite-backed usage data. This keeps the project easy to run locally and focused on reasoning and UX rather than infrastructure.
 
-The graph schema is intentionally designed to align with production graph databases. As the project evolves, the same model can be upgraded to a system like Neo4j to support larger datasets, deeper traversals, and multi-tenant views without changing the Copilot’s reasoning model.
+The graph schema is intentionally designed to align with production graph databases. As the project evolves, the same model can be upgraded to a system like Neo4j to support larger datasets, deeper traversals, and multi-tenant views without changing the Copilot's reasoning model.
 
 > **Design principle:** The graph is not an optimization — it is the model.
-
----
-
-## Databricks Documentation as a Second Corpus (With Citations)
-
-The copilot ingests **official Databricks documentation** (AWS Compute section) as a **separate vector corpus**.
-
-This allows the system to:
-
-* Explain *what* a feature is (autoscaling, spot, DBUs, warehouses)
-* Provide accurate configuration guidance
-* Avoid generic or hallucinated advice
-
-### Dual-Corpus Retrieval
-
-* **Telemetry corpus** → your usage data, reports, and graph context
-* **Docs corpus** → Databricks product documentation
-
-Routing is intentional:
-
-* Entity-anchored questions prioritize telemetry
-* “What is / how does / how do I configure” questions retrieve docs
-* Some answers use both
-
-### Real Citations (Not Just Debug Info)
-
-When documentation is used, answers include a deterministic **Sources** section, for example:
-
-```
-Sources (Databricks Docs):
-- Spot Instances — https://docs.databricks.com/...
-- Autoscaling Clusters — https://docs.databricks.com/...
-```
-
-Citations are appended **programmatically**, not left to the model to remember.
 
 ---
 
@@ -255,7 +216,7 @@ The schema is intentionally **relational and interconnected**, ideal for GraphRA
 
 ---
 
-## Architecture Overview (Reports + Graph + Docs)
+## Architecture Overview
 
 ```text
 SQLite Usage DB
@@ -267,6 +228,7 @@ Streamlit Dashboard
    - Commentary Pane (LLM)
    - Deterministic Chips
    - Debug Toggle
+   - Filters & Export
    ↓
 Prompt Builder + Context Assembler
    ↓
@@ -274,7 +236,9 @@ GraphRAG (usage graph)
    +
 Docs RAG (Databricks docs)
    ↓
-LLM
+LLM (OpenAI / Gemini / Grok)
+   ↓
+MCP Tools (optional)
 ```
 
 ---
@@ -341,15 +305,43 @@ http://localhost:8501
 
 ```text
 src/
-  app.py                    # Streamlit UI
+  app.py                    # Streamlit UI with filters & export
   chat_orchestrator.py      # Routing + prompts + citations
   graph_model.py            # Nodes + edges
   graph_retriever.py        # GraphRAG traversal
   ingest_embed_index.py     # Telemetry embeddings
   ingest_databricks_docs.py # Databricks docs ingestion
   reports/
-    registry.py             # Report definitions
+    base.py                 # Report specification interface
+    registry.py             # Report catalog
+    job_cost.py             # Job cost & reliability report
+    job_cost_pareto.py      # Pareto concentration analysis
+    spot_risk_by_job.py     # Spot eviction risk analysis
+    compute_type_cost.py    # Cross-type cost comparison
+    anomaly_detection.py    # Statistical anomaly detection
 ```
+
+---
+
+## Recent Improvements (Jan 2026)
+
+### Action Chip Optimization
+- **Eliminated redundancies** across reports (42% reduction in chip count)
+- **Conditional chips** only appear when justified by data (e.g., "Why a spike?" only for high-deviation entities)
+- **Report-specific value** – each chip provides unique insights tied to the report's lens
+- **Taxonomy organization** – chips grouped by Understand/Diagnose/Optimize/Monitor
+
+### Interactive Filters & Export
+- **Date range filters** with quick buttons (Last 7d, 30d, 90d)
+- **Workspace filters** for multi-tenant analysis
+- **CSV export** from every report
+- **Loading indicators** during data fetch and AI generation
+- **Refresh data** button to clear cache
+
+### Report Quality
+- **All reports respect filters** – SQL queries dynamically filtered by date range and workspace
+- **Commentary auto-clears** when switching reports (prevents stale context confusion)
+- **Consistent chip quality** across all 5 reports
 
 ---
 
@@ -371,47 +363,86 @@ This project demonstrates how to build **enterprise-ready AI copilots** that:
 
 The Copilot is intentionally built as an extensible system. Upcoming work focuses on expanding coverage across the pillars of data engineering and introducing higher-level reasoning on top of deterministic foundations.
 
+### MCP (Model Context Protocol) Integration (In Progress)
+
+The next major enhancement is **MCP server integration** to enable agentic workflows with external tools.
+
+**Planned MCP Capabilities:**
+
+1. **Databricks Workspace MCP Server**
+   - Query job configurations, cluster settings, and workspace metadata
+   - Validate recommendations against actual infrastructure
+   - Fetch real-time job run status and logs
+   - Enable "show me the config" → actual API data, not hallucinated
+
+2. **Filesystem MCP Server**
+   - Read/write configuration files (job JSON, cluster policies)
+   - Generate configuration diffs for recommendations
+   - Export reports and analysis to local filesystem
+   - Support "save this analysis" workflows
+
+3. **Web Search MCP Server**
+   - Look up current Databricks pricing
+   - Find recent product updates and best practices
+   - Validate assumptions against external knowledge
+   - Enable "what's the current spot discount?" → real-time pricing
+
+**MCP Integration Benefits:**
+- **Grounded recommendations** – Validate against actual workspace state
+- **Actionable outputs** – Generate configuration files, not just text
+- **Current information** – Access real-time pricing and product updates
+- **Verifiable claims** – Cross-reference recommendations with actual data
+
+**Integration Timeline:**
+1. ✅ Phase 1: Deterministic foundation (reports, chips, filters) – **Complete**
+2. 🔄 Phase 2: MCP server integration – **Next**
+3. 📋 Phase 3: Multi-agent orchestration
+4. 📋 Phase 4: Evaluation framework
+
 ### Pillar-Based Reports (Planned)
 
 Additional reports will be added under the following pillars:
 
-- **Cost Management**
-  - Cost anomalies vs baseline
-  - Cost efficiency ($ per run, $ per GB processed)
-  - Spot vs on-demand counterfactual analysis
+- **Cost Management** *(5/8 complete)*
+  - ✅ Cost anomalies vs baseline
+  - ✅ Cost concentration (Pareto)
+  - ✅ Spot risk analysis
+  - 📋 Cost efficiency ($ per run, $ per GB processed)
+  - 📋 Spot vs on-demand counterfactual analysis
 
-- **Reliability**
+- **Reliability** *(Planned)*
   - Job reliability scorecards (success rate, retries, SLA breaches)
   - Failure pattern analysis (error signatures, root causes)
   - Fragility detection (jobs that barely succeed)
 
-- **Performance & Efficiency**
+- **Performance & Efficiency** *(Planned)*
   - Runtime regression detection (p50 / p95 drift)
   - Resource utilization efficiency (CPU/memory)
   - Shuffle and spill hotspots
 
-- **Data Quality**
+- **Data Quality** *(Planned)*
   - Dataset freshness monitoring
   - Volume drift detection
   - Upstream/downstream blast radius analysis
 
-- **Resilience**
+- **Resilience** *(Planned)*
   - Recovery time metrics (MTTR)
   - Sensitivity to configuration or code changes
   - Single points of failure identification
 
-Reports not yet implemented are visible in the UI as disabled placeholders to make the system’s intended scope explicit.
+Reports not yet implemented are visible in the UI as disabled placeholders to make the system's intended scope explicit.
 
 ### Agent-Based Capabilities (Future)
 
-Once deterministic reports and action chips are in place, the Copilot will introduce **agents** that can:
+Once MCP tools are integrated, the Copilot will introduce **agents** that can:
 
 - Execute multi-step investigations across reports
-- Compare alternative optimization strategies
-- Propose remediation plans with verification steps
+- Compare alternative optimization strategies using real workspace data
+- Propose remediation plans with verification steps (via Databricks API)
+- Generate configuration files for recommended changes
 - Escalate from diagnosis → optimization → monitoring automatically
 
-Agents will build on deterministic chips rather than replacing them.
+Agents will build on deterministic chips and MCP tools rather than replacing them.
 
 ### Evaluation & Testing (Future)
 
@@ -421,6 +452,86 @@ Planned work also includes:
 - Deterministic evaluation sets for key scenarios
 - Groundedness checks against report data
 - Cost and latency tracking for AI interactions
+- MCP tool call accuracy metrics
 
 The goal is to treat AI behavior as a **testable system**, not a black box.
 
+---
+
+## Design Decisions
+
+### Why Report-Driven Instead of Chat-First?
+
+**Chat-first copilots** rely on the LLM to infer intent from natural language. This leads to:
+- Ambiguous queries ("show me cost" → which time range? which jobs? what granularity?)
+- Inconsistent results (same question, different SQL each time)
+- Difficult debugging (what did the LLM decide to query?)
+- Trust issues (is this number right?)
+
+**Report-driven copilots** use deterministic reports to define intent:
+- SQL is explicit and reviewable
+- Results are reproducible
+- Debugging is straightforward (view the SQL)
+- Trust is earned through transparency
+
+The LLM's role shifts from "guess what the user wants" to "explain what the data means."
+
+### Why Action Chips Instead of Free-Form Prompts?
+
+**Free-form prompts** are flexible but:
+- Require users to know what to ask
+- Lead to vague questions ("how can I optimize?")
+- Produce generic answers
+- Waste tokens on prompt engineering
+
+**Action chips** are constrained but:
+- Guide users toward valuable questions
+- Generate specific, parameterized prompts
+- Produce targeted, actionable answers
+- Reduce wasted compute
+
+The best of both worlds: chips for common patterns, free-form for exploration.
+
+### Why GraphRAG Instead of Pure Vector Search?
+
+**Vector search alone** works for documents but struggles with:
+- Relationship queries ("which jobs share this cluster?")
+- Causality ("did evictions cause this failure?")
+- Multi-hop reasoning ("what's affected downstream?")
+
+**GraphRAG** adds:
+- Explicit relationships between entities
+- Traversable structure for multi-hop queries
+- Causal reasoning pathways
+- Semantic compression (graph = meaning)
+
+SQL computes metrics. Graph models relationships. LLM explains causality.
+
+---
+
+## Contributing
+
+This is a portfolio project demonstrating enterprise AI copilot design patterns. While not open for external contributions, the code is structured to be educational and reusable.
+
+**Key learnings shared:**
+- Deterministic vs probabilistic AI interfaces
+- GraphRAG for operational telemetry
+- Action chip taxonomy for guided AI interactions
+- MCP integration for agentic workflows
+- Report-driven UX patterns
+
+---
+
+## License
+
+MIT License - See LICENSE file for details.
+
+---
+
+## Contact
+
+**Pete Tamisin**
+📧 pete@tamisin.com
+🔗 [LinkedIn](https://www.linkedin.com/in/peter-tamisin-50a3233a/)
+
+*Building AI systems that earn trust through transparency, not magic.*
