@@ -51,104 +51,118 @@ def _safe_slug(x: str) -> str:
 
 def _default_chips_for_selection(report_name: str, sel: SelectionLike) -> List[Chip]:
     """
-    Deterministic baseline chips that ALWAYS appear for a selection,
-    even if the report didn't define any action chips.
+    Minimal, CONDITIONAL default chips.
+    Only show chips when they're actually relevant.
     """
     et = str(sel.entity_type)
     eid = str(sel.entity_id)
-
-    base: List[Chip] = [
-        Chip(
-            id=f"core:about:{_safe_slug(et)}:{_safe_slug(eid)}",
-            label="📌 Explain this",
-            group="Understand",
-            prompt=(
-                f"Explain what this {et} ({eid}) represents in Databricks usage telemetry, "
-                f"and summarize what matters most in the context of the '{report_name}' report."
-            ),
-        ),
-        Chip(
-            id=f"core:drivers:{_safe_slug(et)}:{_safe_slug(eid)}",
-            label="🧾 Main drivers",
-            group="Diagnose",
-            prompt=(
-                f"For {et} ({eid}), identify the biggest drivers behind what I'm seeing in the '{report_name}' report. "
-                "Be specific, and reference the underlying telemetry patterns (runs, compute usage, events) where applicable."
-            ),
-        ),
-        Chip(
-            id=f"core:spike:{_safe_slug(et)}:{_safe_slug(eid)}",
-            label="📈 Why a spike?",
-            group="Diagnose",
-            prompt=(
-                f"Did {et} ({eid}) spike recently? If so, give the most likely causes. "
-                "Walk through a few hypotheses (data growth, retries, evictions, sizing, schedule change) and how to verify each."
-            ),
-        ),
+    
+    base: List[Chip] = []
+    
+    # Check if there's actually a spike worth investigating
+    payload = sel.payload or {}
+    
+    # Spike detection logic - adapt based on what's in the payload
+    has_spike = False
+    
+    # Method 1: Check for explicit spike indicators
+    if 'pct_deviation' in payload:
+        # From anomaly report
+        has_spike = abs(payload.get('pct_deviation', 0)) > 20  # >20% deviation
+    
+    elif 'pct_of_total_cost' in payload:
+        # From cost reports - if this entity is >15% of total, investigate
+        has_spike = payload.get('pct_of_total_cost', 0) > 15
+    
+    elif 'cost_volatility_ratio' in payload:
+        # From compute type report - high volatility = investigate
+        has_spike = payload.get('cost_volatility_ratio', 0) > 1.0
+    
+    elif 'failure_rate_pct' in payload:
+        # Failures can cause cost spikes via retries
+        has_spike = payload.get('failure_rate_pct', 0) > 15
+    
+    # CONDITIONAL: Only add "Why a spike?" if there's evidence of one
+    if has_spike:
+        base.append(
+            Chip(
+                id=f"core:spike:{_safe_slug(et)}:{_safe_slug(eid)}",
+                label="📈 Why a spike?",
+                group="Diagnose",
+                prompt=(
+                    f"Analyze the recent spike for {et} ({eid}). "
+                    f"Walk through likely causes: "
+                    f"(1) Data volume growth "
+                    f"(2) Retries or failures "
+                    f"(3) Spot evictions forcing on-demand "
+                    f"(4) Configuration changes "
+                    f"(5) Schedule changes or increased frequency. "
+                    f"For each hypothesis, explain how to verify it with the telemetry data."
+                ),
+            )
+        )
+    
+    # ALWAYS add: Next steps (always relevant)
+    base.append(
         Chip(
             id=f"core:next:{_safe_slug(et)}:{_safe_slug(eid)}",
             label="✅ Next steps",
             group="Monitor",
             prompt=(
-                f"Give me a short action plan for {et} ({eid}) based on the '{report_name}' report: "
-                "quick wins, deeper investigation steps, and what to monitor going forward."
+                f"Give me a short action plan for {et} ({eid}) based on the "
+                f"'{report_name}' report: quick wins, deeper investigation steps, "
+                "and what to monitor going forward."
             ),
-        ),
-    ]
-
-    et_norm = et.lower()
-
-    # Job-ish entity types
-    if "job" in et_norm:
-        base.extend(
-            [
-                Chip(
-                    id=f"job:cost:{_safe_slug(eid)}",
-                    label="💸 Optimize cost",
-                    group="Optimize",
-                    prompt=(
-                        f"For job ({eid}), what are the top cost drivers and the highest-confidence way to reduce cost "
-                        "without harming SLA? Include tradeoffs and verification steps."
-                    ),
-                ),
-                Chip(
-                    id=f"job:reliability:{_safe_slug(eid)}",
-                    label="🛡️ Reliability check",
-                    group="Optimize",
-                    prompt=(
-                        f"For job ({eid}), assess reliability risks (failures, retries, long tail runtimes, evictions). "
-                        "Recommend fixes and how to validate improvement."
-                    ),
-                ),
-            ]
         )
-
-    # Compute-ish entity types
-    if any(x in et_norm for x in ["cluster", "compute", "warehouse"]):
-        base.extend(
-            [
-                Chip(
-                    id=f"compute:util:{_safe_slug(et)}:{_safe_slug(eid)}",
-                    label="🧠 Utilization",
-                    group="Optimize",
-                    prompt=(
-                        f"For {et} ({eid}), assess utilization efficiency (CPU/memory patterns, over/under-provisioning). "
-                        "Recommend sizing/autoscaling changes and how to validate improvements."
-                    ),
-                ),
-                Chip(
-                    id=f"compute:stability:{_safe_slug(et)}:{_safe_slug(eid)}",
-                    label="⚠️ Stability",
-                    group="Diagnose",
-                    prompt=(
-                        f"For {et} ({eid}), identify stability risks (spot/eviction behavior, node churn, driver OOM, GC pressure). "
-                        "Give mitigation steps and what telemetry would confirm the root cause."
-                    ),
-                ),
-            ]
-        )
-
+    )
+    
     return base
+
+
+# RESULT:
+# 
+# For normal jobs:
+#   - 💰 Cost Breakdown (report)
+#   - 💡 How to Optimize (report)
+#   - ✅ Next steps (default)
+#   Total: 3 chips
+#
+# For jobs with spikes (>15% of cost OR >20% deviation):
+#   - 💰 Cost Breakdown (report)
+#   - 💡 How to Optimize (report)
+#   - 📈 Why a spike? (default - CONDITIONAL)
+#   - ✅ Next steps (default)
+#   Total: 4 chips
+#
+# For failing jobs with spikes:
+#   - 💰 Cost Breakdown (report)
+#   - 🔍 Why Is This Failing? (report - CONDITIONAL)
+#   - 💡 How to Optimize (report)
+#   - 📈 Why a spike? (default - CONDITIONAL)
+#   - ✅ Next steps (default)
+#   Total: 5 chips
+#
+# Every chip is EARNED by the data, not shown blindly!
+
+
+# WHAT THIS ELIMINATES:
+#
+# ❌ REMOVED from defaults:
+#   - 📌 Explain this (redundant with Cost Breakdown context)
+#   - 🧾 Main drivers (redundant with Cost Breakdown analysis)
+#   - 💸 Optimize cost (redundant with "How to Optimize")
+#   - 🛡️ Reliability check (redundant with "Why Is This Failing?")
+#   - 🧠 Utilization (no compute reports yet to conflict)
+#   - ⚠️ Stability (no compute reports yet to conflict)
+#
+# ✅ KEPT (truly generic):
+#   - 📈 Why a spike? (temporal analysis - different from cost breakdown)
+#   - ✅ Next steps (action planning - different from optimization recs)
+#
+# RESULT:
+# - Job reports control 100% of their domain-specific chips
+# - Defaults add ONLY cross-cutting temporal/planning analysis
+# - Zero redundancy possible
 
 
 def _render_chip_row(chips: List[Chip], key_prefix: str, columns: int = 3) -> None:

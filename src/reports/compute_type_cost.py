@@ -263,29 +263,26 @@ def build_action_chips(sel: Selection, filters: Dict[str, Any]) -> List[ActionCh
     if ct == "JOB_RUN":
         chips.extend([
             ActionChip(
-                label="🔍 Top Cost Drivers",
+                label="📊 Type Comparison",
                 prompt=(
-                    f"Analyze JOB_RUN compute usage. "
-                    f"Identify the top 3 job_id values driving cost and explain why. "
-                    f"Include: run frequency, duration, cluster size, and spot ratio."
+                    f"Compare JOB_RUN compute to SQL_WAREHOUSE and APC_CLUSTER. "
+                    f"Show: (1) Cost per entity (average job cost vs avg warehouse cost vs avg cluster cost) "
+                    f"(2) Efficiency comparison (DBU/$ vs work accomplished) "
+                    f"(3) Workload fit: are there jobs that should be SQL queries instead? "
+                    f"(4) Migration opportunities: which workloads are on the wrong compute type? "
+                    f"Include specific examples with cost deltas and migration ROI."
                 ),
                 focus=focus
             ),
             ActionChip(
-                label="💡 Quick Wins",
+                label="💰 Cross-Job Patterns",
                 prompt=(
-                    f"Suggest 3 quick optimization wins for JOB_RUN spend: "
-                    f"(1) jobs to right-size, (2) jobs to increase spot ratio, "
-                    f"(3) jobs to reschedule or consolidate."
-                ),
-                focus=focus
-            ),
-            ActionChip(
-                label="⚠️ Reliability Risks",
-                prompt=(
-                    f"Identify JOB_RUN reliability risks: "
-                    f"jobs with high failure rates, frequent retries, or spot evictions. "
-                    f"Recommend mitigations."
+                    f"Find optimization patterns across ALL JOB_RUN instances: "
+                    f"(1) Common configuration anti-patterns (oversized clusters, low spot usage) "
+                    f"(2) Cluster sizing trends (are most jobs using similar configs?) "
+                    f"(3) Spot usage distribution (what % of jobs use spot? how much?) "
+                    f"(4) Policy recommendations that could apply to multiple jobs. "
+                    f"Focus on changes that affect 5+ jobs for maximum impact."
                 ),
                 focus=focus
             ),
@@ -294,29 +291,26 @@ def build_action_chips(sel: Selection, filters: Dict[str, Any]) -> List[ActionCh
     elif ct == "SQL_WAREHOUSE":
         chips.extend([
             ActionChip(
-                label="📊 Usage Patterns",
+                label="📏 Warehouse Right-Sizing",
                 prompt=(
-                    f"Analyze SQL_WAREHOUSE usage patterns. "
-                    f"Identify: (1) peak usage times, (2) idle periods, "
-                    f"(3) warehouses with low utilization or excessive auto-resume cycles."
+                    f"Analyze SQL_WAREHOUSE sizing across all warehouses. "
+                    f"Identify: (1) Over-provisioned warehouses (low utilization, high cost) "
+                    f"(2) Under-provisioned warehouses (queuing, poor performance) "
+                    f"(3) Consolidation opportunities (can we merge small warehouses?) "
+                    f"(4) Serverless migration candidates (predictable workloads). "
+                    f"For each issue, provide: affected warehouses, cost impact, recommended size/config."
                 ),
                 focus=focus
             ),
             ActionChip(
-                label="💰 Cost Reduction",
+                label="⏰ Usage Pattern Analysis",
                 prompt=(
-                    f"Recommend SQL_WAREHOUSE cost reductions: "
-                    f"right-sizing opportunities, auto-stop tuning, "
-                    f"query optimization candidates, and warehouse consolidation."
-                ),
-                focus=focus
-            ),
-            ActionChip(
-                label="🐌 Performance Issues",
-                prompt=(
-                    f"Identify SQL_WAREHOUSE performance issues: "
-                    f"slow queries, warehouse queuing, undersized warehouses. "
-                    f"Suggest specific actions."
+                    f"Analyze WHEN SQL_WAREHOUSE instances are used: "
+                    f"(1) Peak hours vs idle time (when is demand highest?) "
+                    f"(2) Auto-stop/auto-resume efficiency (are warehouses idling?) "
+                    f"(3) Team-based sharing opportunities (can teams consolidate?) "
+                    f"(4) Cost impact of better scheduling (shift workloads to off-peak). "
+                    f"Include hourly usage heatmap insights and cost savings estimates."
                 ),
                 focus=focus
             ),
@@ -325,11 +319,14 @@ def build_action_chips(sel: Selection, filters: Dict[str, Any]) -> List[ActionCh
     elif ct == "APC_CLUSTER":
         chips.extend([
             ActionChip(
-                label="🔍 What Is This Used For?",
+                label="🔍 Cluster Governance",
                 prompt=(
-                    f"Explain APC_CLUSTER usage in this environment. "
-                    f"Identify: typical workloads, primary users, "
-                    f"and whether this represents ad-hoc analysis or production pipelines."
+                    f"Analyze APC_CLUSTER usage and governance: "
+                    f"(1) Who uses these clusters? (identify top users by cost) "
+                    f"(2) What are they used for? (ad-hoc analysis vs production) "
+                    f"(3) Idle cluster waste (clusters left running, no activity) "
+                    f"(4) Migration candidates (workloads that should be scheduled jobs). "
+                    f"Recommend governance policies: auto-termination, cluster policies, training."
                 ),
                 focus=focus
             ),
@@ -337,17 +334,11 @@ def build_action_chips(sel: Selection, filters: Dict[str, Any]) -> List[ActionCh
                 label="💸 Cost Controls",
                 prompt=(
                     f"Recommend APC_CLUSTER cost controls: "
-                    f"auto-termination policies, instance pool usage, "
-                    f"cluster policies, and migration to job-based workflows."
-                ),
-                focus=focus
-            ),
-            ActionChip(
-                label="👤 User Behavior",
-                prompt=(
-                    f"Analyze APC_CLUSTER user behavior. "
-                    f"Identify users with highest usage, idle clusters, "
-                    f"and opportunities for training or governance."
+                    f"(1) Auto-termination policies (aggressive timeouts for dev clusters) "
+                    f"(2) Instance pool usage (pre-warm capacity for frequent users) "
+                    f"(3) Cluster policies (size limits, spot requirements, tags) "
+                    f"(4) Migration plan (move predictable workloads to scheduled jobs). "
+                    f"For each, estimate implementation effort and monthly savings."
                 ),
                 focus=focus
             ),
@@ -355,24 +346,60 @@ def build_action_chips(sel: Selection, filters: Dict[str, Any]) -> List[ActionCh
     else:
         chips.extend([
             ActionChip(
-                label="📋 Overview",
+                label="📋 Type Overview",
                 prompt=(
-                    f"Tell me more about compute usage of type {ct}. "
-                    f"Explain typical workloads and primary cost drivers."
-                ),
-                focus=focus
-            ),
-            ActionChip(
-                label="💡 Optimization",
-                prompt=(
-                    f"Suggest optimization opportunities for {ct} usage. "
-                    f"Include: configuration tuning, scheduling, and governance policies."
+                    f"Explain compute usage of type {ct}: "
+                    f"(1) Typical workloads and use cases "
+                    f"(2) Primary cost drivers "
+                    f"(3) Efficiency metrics vs other compute types "
+                    f"(4) Optimization opportunities."
                 ),
                 focus=focus
             ),
         ])
 
     return chips
+
+
+# RESULT:
+# 
+# JOB_RUN compute type:
+#   - 📊 Type Comparison (cross-type migration opportunities)
+#   - 💰 Cross-Job Patterns (patterns affecting 5+ jobs)
+#   + 📈 Why a spike? (default - conditional)
+#   + ✅ Next steps (default)
+#   Total: 3-4 chips
+#
+# SQL_WAREHOUSE compute type:
+#   - 📏 Warehouse Right-Sizing (sizing across all warehouses)
+#   - ⏰ Usage Pattern Analysis (temporal patterns, scheduling)
+#   + 📈 Why a spike? (default - conditional)
+#   + ✅ Next steps (default)
+#   Total: 3-4 chips
+#
+# APC_CLUSTER compute type:
+#   - 🔍 Cluster Governance (users, usage, idle waste)
+#   - 💸 Cost Controls (policies, pools, migration)
+#   + 📈 Why a spike? (default - conditional)
+#   + ✅ Next steps (default)
+#   Total: 3-4 chips
+#
+# ELIMINATED REDUNDANCIES:
+# ❌ "Top Cost Drivers" - too generic, overlaps with job_cost report
+# ❌ "Quick Wins" - redundant across all reports
+# ❌ "Reliability Risks" - belongs in job_cost or spot_risk, not type-level
+# ❌ "Usage Patterns" (warehouse) - kept but made more specific
+# ❌ "Performance Issues" - too generic
+# ❌ "What Is This Used For?" - renamed to "Cluster Governance" with actual analysis
+# ❌ "User Behavior" - integrated into "Cluster Governance"
+# ❌ "Overview" / "Optimization" - generic fallbacks, kept minimal
+#
+# UNIQUE VALUE:
+# ✅ Type Comparison - migration opportunities ACROSS compute types
+# ✅ Cross-Job Patterns - patterns affecting MULTIPLE jobs (type-level view)
+# ✅ Warehouse Right-Sizing - sizing analysis ACROSS all warehouses
+# ✅ Usage Pattern Analysis - temporal patterns, scheduling optimization
+# ✅ Cluster Governance - who, what, idle waste (APC-specific issues)
 
 
 REPORT = ReportSpec(

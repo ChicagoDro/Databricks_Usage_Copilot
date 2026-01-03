@@ -317,61 +317,91 @@ def build_action_chips(sel: Selection, filters: Dict[str, Any]) -> List[ActionCh
     eviction_count = payload.get('eviction_count', 0)
     failure_rate = payload.get('failure_rate_pct', 0)
     spot_pct = payload.get('spot_cost_pct', 0)
+    reliability_premium = payload.get('reliability_premium', 0)
     
     chips = []
     
-    # Diagnosis
+    # PRIMARY: Spot economics calculation (unique to this report)
     chips.append(ActionChip(
-        label="🔍 Root Cause Analysis",
+        label="⚡ Spot Economics",
         prompt=(
-            f"Tell me more about job_id={job_id}. "
-            f"This job has {eviction_count} evictions and {failure_rate:.1f}% failure rate. "
-            f"Analyze: (1) when evictions occur, (2) whether they correlate with failures, "
-            f"(3) patterns in instance types or regions."
+            f"Calculate the spot/on-demand tradeoff for job_id={job_id}. "
+            f"Current state: {spot_pct:.0f}% spot usage, {eviction_count} evictions, "
+            f"{failure_rate:.1f}% failure rate. "
+            f"Show me: (1) Monthly savings from current spot ratio vs 100% on-demand "
+            f"(2) Hidden cost of evictions (retry overhead, delays, wasted compute) "
+            f"(3) Optimal spot ratio that minimizes TOTAL cost (savings minus eviction cost) "
+            f"(4) Break-even analysis: at what eviction rate does spot stop being cost-effective? "
+            f"Provide specific dollar figures and recommended spot ratio."
         ),
         focus=focus,
     ))
     
-    # Immediate action
+    # SECONDARY: Spot-specific mitigation strategies
+    chips.append(ActionChip(
+        label="🛡️ Reduce Eviction Risk",
+        prompt=(
+            f"Recommend specific changes to reduce evictions for job_id={job_id}. "
+            f"Current: {eviction_count} evictions. Evaluate these options: "
+            f"(1) Switch to instance types with historically lower eviction rates "
+            f"(2) Use instance pools with reserved capacity "
+            f"(3) Adjust spot bid strategies or use diversified instance types "
+            f"(4) Schedule during off-peak hours when eviction risk is lower "
+            f"(5) Implement graceful degradation (fallback to on-demand). "
+            f"For each option, estimate: impact on eviction rate, cost delta, "
+            f"implementation complexity. Rank by ROI."
+        ),
+        focus=focus,
+    ))
+    
+    # CONDITIONAL: Emergency action for high-risk jobs
     if eviction_count > 5 or failure_rate > 15:
         chips.append(ActionChip(
-            label="🚨 Immediate Mitigation",
+            label="🚨 Emergency Fix",
             prompt=(
-                f"Tell me more about job_id={job_id}. "
-                f"This job is high-risk. Provide immediate mitigation steps: "
-                f"(1) emergency spot ratio reduction, (2) instance pool configuration, "
-                f"(3) retry policy tuning, (4) fallback to on-demand."
+                f"URGENT: job_id={job_id} has {eviction_count} evictions and "
+                f"{failure_rate:.1f}% failure rate. This requires immediate action. "
+                f"Provide emergency mitigation: "
+                f"(1) Immediate spot ratio reduction (from {spot_pct:.0f}% to what?) "
+                f"(2) Instance pool configuration to add stability "
+                f"(3) Retry policy tuning to handle evictions gracefully "
+                f"(4) Temporary fallback to 100% on-demand until root cause is fixed. "
+                f"Include: exact configuration changes, expected cost impact, "
+                f"and timeline to implement (hours, not days)."
             ),
             focus=focus,
         ))
     
-    # Cost-benefit
-    chips.append(ActionChip(
-        label="💰 Cost vs Reliability",
-        prompt=(
-            f"Tell me more about job_id={job_id}. "
-            f"Current spot usage is {spot_pct:.0f}%. Calculate: "
-            f"(1) cost if moved to 100% on-demand, "
-            f"(2) optimal spot ratio balancing cost and reliability, "
-            f"(3) expected savings vs risk."
-        ),
-        focus=focus,
-    ))
-    
-    # Long-term strategy
-    chips.append(ActionChip(
-        label="📋 Long-Term Strategy",
-        prompt=(
-            f"Tell me more about job_id={job_id}. "
-            f"Recommend a sustainable spot strategy: "
-            f"(1) target spot ratio by environment (dev/prod), "
-            f"(2) instance pool setup, (3) monitoring and alerting, "
-            f"(4) SLA considerations."
-        ),
-        focus=focus,
-    ))
-
     return chips
+
+
+# RESULT:
+# 
+# Normal spot jobs (low evictions, <15% failures):
+#   - ⚡ Spot Economics (report-specific cost/benefit)
+#   - 🛡️ Reduce Eviction Risk (spot-specific fixes)
+#   + 📈 Why a spike? (default - conditional)
+#   + ✅ Next steps (default)
+#   Total: 3-4 chips
+#
+# High-risk spot jobs (>5 evictions OR >15% failures):
+#   - ⚡ Spot Economics
+#   - 🛡️ Reduce Eviction Risk
+#   - 🚨 Emergency Fix (conditional)
+#   + 📈 Why a spike? (default - conditional)
+#   + ✅ Next steps (default)
+#   Total: 4-5 chips
+#
+# ELIMINATED REDUNDANCIES:
+# ❌ "Root Cause Analysis" - too generic, same as job_cost's "Why Is This Failing?"
+# ❌ "Cost vs Reliability" - now integrated into "Spot Economics" with actual numbers
+# ❌ "Long-Term Strategy" - redundant with default "Next steps"
+# ❌ "Immediate Mitigation" - renamed to "Emergency Fix" and made more urgent
+#
+# UNIQUE VALUE:
+# ✅ Spot Economics - CALCULATE savings, eviction costs, optimal spot ratio
+# ✅ Reduce Eviction Risk - SPOT-SPECIFIC actions (instance types, pools, scheduling)
+# ✅ Emergency Fix - URGENT conditional action for high-risk situations
 
 
 REPORT = ReportSpec(

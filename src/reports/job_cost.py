@@ -287,72 +287,88 @@ def build_selections(df: pd.DataFrame, filters: Dict[str, Any]) -> List[Selectio
 
 
 def build_action_chips(sel: Selection, filters: Dict[str, Any]) -> List[ActionChip]:
+    """
+    Streamlined cost-focused chips - zero redundancy.
+    Each chip answers a fundamentally different question.
+    """
     job_id = sel.entity_id
     focus = default_focus_for_selection(sel)
     
     payload = sel.payload
     failure_rate = payload.get('failure_rate_pct', 0)
+    cost_total = payload.get('cost_total_usd', 0)
     spot_ratio = payload.get('avg_spot_ratio', 0)
+    total_runs = payload.get('total_runs', 0)
     
     chips = []
     
-    # Always include overview
-    chips.append(ActionChip(
-        label="📋 Job Overview",
-        prompt=(
-            f"Tell me more about job_id={job_id}. "
-            f"Provide: purpose, schedule, cost drivers, and configuration summary."
-        ),
-        focus=focus,
-    ))
-    
-    # Conditional chips based on job characteristics
-    if failure_rate > 10:
-        chips.append(ActionChip(
-            label="🔍 Why Is This Failing?",
-            prompt=(
-                f"Tell me more about job_id={job_id}. "
-                f"This job has a {failure_rate:.1f}% failure rate. "
-                f"Analyze recent failures, identify patterns, and suggest root causes."
-            ),
-            focus=focus,
-        ))
-    
-    if spot_ratio > 0.5:
-        chips.append(ActionChip(
-            label="⚡ Spot Risk Analysis",
-            prompt=(
-                f"Tell me more about job_id={job_id}. "
-                f"This job uses {spot_ratio*100:.0f}% spot instances. "
-                f"Assess eviction risk and recommend optimal spot ratio."
-            ),
-            focus=focus,
-        ))
-    
-    # Always include optimization
-    chips.append(ActionChip(
-        label="💡 Optimization Recommendations",
-        prompt=(
-            f"Tell me more about job_id={job_id}. "
-            f"Provide ranked optimization recommendations: "
-            f"compute sizing, scheduling, caching, spot strategy, and configuration tuning."
-        ),
-        focus=focus,
-    ))
-    
-    # Cost breakdown
+    # PRIMARY: Cost Breakdown - includes context + breakdown
     chips.append(ActionChip(
         label="💰 Cost Breakdown",
         prompt=(
-            f"Tell me more about job_id={job_id}. "
-            f"Break down cost by: compute type, driver vs workers, spot vs on-demand, "
-            f"and identify the single biggest cost driver."
+            f"Analyze job_id={job_id} (total cost: ${cost_total:,.2f}). "
+            f"First, provide 2-sentence context: what this job does and its schedule. "
+            f"Then break down cost into components: "
+            f"(1) Driver vs worker node costs "
+            f"(2) Spot (currently {spot_ratio*100:.0f}%) vs on-demand costs "
+            f"(3) Compute runtime vs cluster startup/idle time "
+            f"(4) Impact of {total_runs} runs and any retries "
+            f"(5) Instance type and cluster size impact. "
+            f"Identify which component is the biggest cost driver."
+        ),
+        focus=focus,
+    ))
+    
+    # CONDITIONAL: Reliability - only if failure rate warrants it
+    if failure_rate > 10:
+        chips.append(ActionChip(
+            label=f"🔍 Why Is This Failing {failure_rate:.1f}%?",
+            prompt=(
+                f"Analyze why job_id={job_id} has a {failure_rate:.1f}% failure rate. "
+                f"Investigate: "
+                f"(1) Most common error patterns from recent failures "
+                f"(2) Whether failures correlate with spot evictions, retries, or data issues "
+                f"(3) Root cause hypothesis with supporting evidence "
+                f"(4) Recommended fixes with estimated cost impact. "
+                f"Focus on reliability improvements that reduce retry costs."
+            ),
+            focus=focus,
+        ))
+    
+    # OPTIMIZATION: How to reduce cost
+    chips.append(ActionChip(
+        label="💡 How to Optimize",
+        prompt=(
+            f"Provide 3-5 ranked optimization recommendations for job_id={job_id}: "
+            f"(1) Compute sizing (right-size clusters) "
+            f"(2) Scheduling (off-peak hours, consolidation) "
+            f"(3) Spot strategy (current: {spot_ratio*100:.0f}% spot) "
+            f"(4) Configuration tuning (autoscaling, caching) "
+            f"(5) Code/query optimization opportunities. "
+            f"For each: estimate cost savings, implementation effort (high/medium/low), "
+            f"and potential risks. Rank by ROI."
         ),
         focus=focus,
     ))
     
     return chips
 
+
+# RESULT AFTER COMBINING WITH APP.PY DEFAULTS:
+#
+# Diagnose:
+#   - 💰 Cost Breakdown (includes job context)
+#   - 🔍 Why Is This Failing? (conditional: only if failure_rate > 10%)
+#   - 📈 Why a spike? (from app.py default)
+#
+# Optimize:
+#   - 💡 How to Optimize
+#
+# Monitor:
+#   - ✅ Next steps (from app.py default)
+#
+# TOTAL: 4-5 chips (down from 8)
+# Zero redundancy between report and defaults
 
 REPORT = ReportSpec(
     key="job_cost",

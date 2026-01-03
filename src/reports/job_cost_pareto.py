@@ -333,69 +333,88 @@ def build_action_chips(sel: Selection, filters: Dict[str, Any]) -> List[ActionCh
     
     rank = payload.get('rank', 999)
     pct_of_total = payload.get('pct_of_total', 0)
+    cumulative_pct = payload.get('cumulative_pct', 0)
     
     chips = []
     
-    # Context-aware first chip
-    if rank <= 3:
-        chips.append(ActionChip(
-            label="🎯 Deep-Dive Analysis",
-            prompt=(
-                f"Tell me more about job_id={job_id}. "
-                f"This is the #{rank} cost driver ({pct_of_total:.1f}% of total). "
-                f"Provide comprehensive analysis: (1) cost breakdown by component, "
-                f"(2) efficiency metrics vs similar jobs, (3) historical trends, "
-                f"(4) specific optimization opportunities with ROI estimates."
-            ),
-            focus=focus,
-        ))
-    else:
-        chips.append(ActionChip(
-            label="📊 Cost Driver Analysis",
-            prompt=(
-                f"Tell me more about job_id={job_id}. "
-                f"Explain why this job ranks #{rank} in cost. "
-                f"Include: run frequency, duration, cluster configuration, and data volume processed."
-            ),
-            focus=focus,
-        ))
-    
-    # Quick wins
+    # PRIMARY: Pareto-specific positioning analysis
     chips.append(ActionChip(
-        label="⚡ Quick Optimization Wins",
+        label="📊 Pareto Impact",
         prompt=(
-            f"Tell me more about job_id={job_id}. "
-            f"Identify 3 quick wins that could reduce cost by 15-30%: "
-            f"right-sizing, spot ratio adjustments, scheduling changes, caching opportunities."
+            f"Analyze job_id={job_id}'s position in the cost distribution. "
+            f"Rank #{rank}, representing {pct_of_total:.1f}% of total cost, "
+            f"cumulative {cumulative_pct:.1f}%. "
+            f"Explain: (1) Why this job ranks where it does (run frequency, "
+            f"duration, cluster size, data volume) "
+            f"(2) What % of total cost would be saved by optimizing this job "
+            f"(3) How this job compares to jobs immediately above/below it in ranking "
+            f"(4) Whether this ranking is stable or changing over time. "
+            f"Include specific cost figures and efficiency metrics."
         ),
         focus=focus,
     ))
     
-    # Comparative analysis
+    # SECONDARY: Peer benchmarking (unique to Pareto view)
     chips.append(ActionChip(
-        label="📈 Benchmark Against Peers",
+        label="📈 Benchmark vs Peers",
         prompt=(
-            f"Tell me more about job_id={job_id}. "
-            f"How does this job's efficiency compare to similar jobs? "
-            f"Analyze: cost per run, DBU efficiency, runtime variance, resource utilization."
+            f"Compare job_id={job_id} efficiency to similar jobs in the cost ranking. "
+            f"Analyze: (1) Cost per run vs jobs with similar workloads "
+            f"(2) DBU efficiency (cost per DBU vs peers) "
+            f"(3) Runtime variance (is this job predictable?) "
+            f"(4) Resource utilization patterns. "
+            f"Identify if this job is inefficient relative to its peer group, "
+            f"or if high cost is justified by workload characteristics."
         ),
         focus=focus,
     ))
     
-    # Strategic recommendation
+    # CONDITIONAL: Only for top-tier cost drivers
     if pct_of_total > 10:
         chips.append(ActionChip(
-            label="🎯 Strategic Roadmap",
+            label="🎯 ROI Analysis",
             prompt=(
-                f"Tell me more about job_id={job_id}. "
                 f"This job represents {pct_of_total:.1f}% of total cost. "
-                f"Create a 90-day optimization roadmap: Phase 1 (quick wins), "
-                f"Phase 2 (architectural improvements), Phase 3 (ongoing monitoring)."
+                f"Calculate optimization ROI for job_id={job_id}: "
+                f"(1) If we reduce cost by 20%, what's the dollar impact? "
+                f"(2) What's the implementation effort for top 3 optimizations? "
+                f"(3) Compare ROI of optimizing THIS job vs the next-ranked job "
+                f"(4) Should we prioritize this job or focus elsewhere? "
+                f"Provide concrete dollar figures and timeline estimates."
             ),
             focus=focus,
         ))
     
     return chips
+
+
+# RESULT:
+# 
+# Normal jobs (rank >3, <10% of cost):
+#   - 📊 Pareto Impact (report-specific)
+#   - 📈 Benchmark vs Peers (report-specific)
+#   + 📈 Why a spike? (default - conditional if pct_of_total > 15%)
+#   + ✅ Next steps (default)
+#   Total: 3-4 chips
+#
+# High-cost jobs (>10% of total cost):
+#   - 📊 Pareto Impact
+#   - 📈 Benchmark vs Peers
+#   - 🎯 ROI Analysis (conditional)
+#   + 📈 Why a spike? (default - conditional, triggers at >15%)
+#   + ✅ Next steps (default)
+#   Total: 4-5 chips
+#
+# ELIMINATED REDUNDANCIES:
+# ❌ "Deep-Dive Analysis" - too generic, replaced by Pareto Impact
+# ❌ "Cost Driver Analysis" - same as Deep-Dive, now in Pareto Impact
+# ❌ "Quick Optimization Wins" - redundant with job_cost's "How to Optimize"
+# ❌ "Strategic Roadmap" - redundant with default "Next steps"
+#
+# UNIQUE VALUE:
+# ✅ Pareto Impact - WHERE in the distribution (rank, cumulative %)
+# ✅ Benchmark vs Peers - efficiency RELATIVE to similar jobs
+# ✅ ROI Analysis - should you PRIORITIZE this vs other jobs?
 
 
 REPORT = ReportSpec(

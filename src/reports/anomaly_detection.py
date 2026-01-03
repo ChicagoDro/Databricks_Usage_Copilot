@@ -379,73 +379,77 @@ def build_selections(df: pd.DataFrame, filters: Dict[str, Any]) -> List[Selectio
 
 
 def build_action_chips(sel: Selection, filters: Dict[str, Any]) -> List[ActionChip]:
-    """Build action chips for selected anomaly"""
+    """Build action chips for selected anomaly - cost-focused version"""
     payload = sel.payload
     entity_id = payload['entity_id']
     entity_name = payload['entity_name']
     date = payload['date']
     severity = payload['severity']
     pct_dev = payload['pct_deviation']
+    cost = payload['cost']
+    expected_cost = payload['expected_cost']
     
     focus = default_focus_for_selection(sel)
     
     chips = [
+        # PRIMARY - Agent does root cause investigation
         ActionChip(
             label="🤖 Auto-Investigate",
             prompt=(
                 f"AGENT:root_cause_investigator "
                 f"entity_id={entity_id} "
                 f"date={date} "
-                f"task=Investigate {severity} anomaly for {entity_name}"
-            ),
-            focus=focus
-        ),        
-        ActionChip(
-            label="🔍 Root Cause Analysis",
-            prompt=(
-                f"Analyze the {severity} severity cost anomaly for {entity_name} (ID: {entity_id}) on {date}. "
-                f"The cost was {abs(pct_dev):.0f}% {'above' if pct_dev > 0 else 'below'} expected. "
-                f"Investigate: "
-                f"(1) What specific events or changes occurred that day? "
-                f"(2) Were there related failures, retries, or configuration changes? "
-                f"(3) What is the most likely root cause? "
-                f"Use the usage graph to find related events and compute usage patterns."
+                f"severity={severity} "
+                f"pct_deviation={pct_dev:.0f} "
+                f"task=Investigate the {severity} severity cost anomaly for {entity_name} on {date}. "
+                f"The cost was {abs(pct_dev):.0f}% {'above' if pct_dev > 0 else 'below'} expected."
             ),
             focus=focus
         ),
+        
+        # COST FOCUS - Where exactly did the money go?
         ActionChip(
-            label="📊 Pattern Analysis",
+            label="💰 Cost Breakdown",
             prompt=(
-                f"Analyze historical patterns for {entity_name} to understand this anomaly on {date}. "
-                f"Show: "
-                f"(1) Normal cost baseline and variance "
-                f"(2) Similar anomalies in the past "
-                f"(3) Whether this is part of a trend or one-time spike "
-                f"(4) Day-of-week or temporal patterns that might explain it"
+                f"Analyze the ${cost:.2f} cost for {entity_name} on {date} (expected: ${expected_cost:.2f}). "
+                f"Break down the ${abs(cost - expected_cost):.2f} variance into specific components: "
+                f"(1) Driver vs worker node costs "
+                f"(2) Spot vs on-demand instance costs "
+                f"(3) Compute runtime vs cluster startup/idle time "
+                f"(4) Number of runs and retries "
+                f"(5) Instance type and cluster size impact "
+                f"Show the math and identify which component drove the spike."
             ),
             focus=focus
         ),
+        
+        # CONTEXT - Is this a recurring pattern?
         ActionChip(
-            label="⚡ Immediate Actions",
+            label="📊 Historical Context",
             prompt=(
-                f"What immediate actions should be taken for {entity_name} after this {severity} anomaly on {date}? "
-                f"Recommend: "
-                f"(1) Whether to alert stakeholders immediately "
-                f"(2) Quick checks to validate the anomaly isn't a data issue "
-                f"(3) Emergency mitigation steps if still occurring "
-                f"(4) What to monitor closely in the next 24-48 hours"
+                f"Analyze {entity_name}'s cost patterns over the past 90 days to contextualize the {date} anomaly. "
+                f"Determine: "
+                f"(1) Is this spike part of a trend or one-time event? "
+                f"(2) Have similar cost spikes occurred before? When and what caused them? "
+                f"(3) Are there day-of-week, end-of-month, or other temporal patterns? "
+                f"(4) Is cost volatility increasing, stable, or decreasing? "
+                f"Provide 3-4 sentences explaining the broader cost pattern."
             ),
             focus=focus
         ),
+        
+        # BENCHMARK - How do we compare to peers?
         ActionChip(
-            label="🛡️ Prevention Strategy",
+            label="🔬 Compare to Peers",
             prompt=(
-                f"Create a prevention strategy for {entity_name} to avoid similar anomalies. "
-                f"Include: "
-                f"(1) Configuration changes to improve stability "
-                f"(2) Monitoring and alerting thresholds "
-                f"(3) Resource constraints or guardrails to add "
-                f"(4) Documentation or runbook updates needed"
+                f"Benchmark {entity_name} against similar jobs in the same workspace. "
+                f"Find jobs with similar instance types, run frequency, and workload characteristics. "
+                f"Then compare: "
+                f"(1) Cost per run: Is {entity_name} more expensive? "
+                f"(2) Cost efficiency: DBUs consumed vs work done "
+                f"(3) Anomaly frequency: Does {entity_name} spike more often than peers? "
+                f"(4) Configuration differences: What do cheaper peers do differently? "
+                f"Include specific job names and metrics."
             ),
             focus=focus
         ),
@@ -454,11 +458,11 @@ def build_action_chips(sel: Selection, filters: Dict[str, Any]) -> List[ActionCh
     return chips
 
 
-# Report specification
+# Full report specification
 REPORT = ReportSpec(
     key="anomaly_detection",
     name="Cost Anomaly Detection",
-    description="Detect and explain unusual cost spikes using statistical analysis.",
+    description="Detect unusual cost spikes with statistical analysis and AI investigation.",
     load_df=load_df,
     render_viz=render_viz,
     build_selections=build_selections,
