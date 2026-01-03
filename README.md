@@ -323,25 +323,37 @@ src/
 
 ---
 
-## Recent Improvements (Jan 2026)
+## Technical Highlights
 
-### Action Chip Optimization
-- **Eliminated redundancies** across reports (42% reduction in chip count)
-- **Conditional chips** only appear when justified by data (e.g., "Why a spike?" only for high-deviation entities)
-- **Report-specific value** – each chip provides unique insights tied to the report's lens
-- **Taxonomy organization** – chips grouped by Understand/Diagnose/Optimize/Monitor
+### Statistical Anomaly Detection
+The **Cost Anomaly Detection** report implements a custom statistical model for identifying unusual spend patterns:
 
-### Interactive Filters & Export
-- **Date range filters** with quick buttons (Last 7d, 30d, 90d)
-- **Workspace filters** for multi-tenant analysis
-- **CSV export** from every report
-- **Loading indicators** during data fetch and AI generation
-- **Refresh data** button to clear cache
+- **Baseline calculation** using 30-day rolling averages with configurable lookback windows
+- **Multi-factor deviation scoring** combining cost variance, frequency changes, and reliability signals
+- **Severity classification** (Critical/High/Medium/Low) based on statistical thresholds
+- **Temporal correlation** to distinguish one-time spikes from sustained pattern changes
 
-### Report Quality
-- **All reports respect filters** – SQL queries dynamically filtered by date range and workspace
-- **Commentary auto-clears** when switching reports (prevents stale context confusion)
-- **Consistent chip quality** across all 5 reports
+This isn't just "show me expensive things" – it's detecting *changes* in behavior that require investigation.
+
+### Agent-Based Root Cause Investigation
+The **Auto-Investigate** capability demonstrates agentic AI workflows:
+
+- **Multi-step reasoning** – agent breaks investigation into phases (characterization → temporal analysis → configuration changes → data volume → failures)
+- **Hypothesis ranking** – generates ranked hypotheses with confidence levels based on evidence
+- **Actionable next steps** – proposes specific verification queries and remediation paths
+- **Graph-aware context** – leverages the usage graph to understand entity relationships during investigation
+
+Unlike static prompts, the agent *reasons* through the investigation systematically.
+
+### GraphRAG for Operational Telemetry
+Traditional RAG works for documents. Operational telemetry requires **relationship-aware retrieval**:
+
+- **Graph model** captures how jobs, runs, compute, and events relate
+- **Subgraph extraction** around selected entities (BFS traversal with configurable hops)
+- **Semantic compression** – graph structure encodes meaning that pure vectors miss
+- **Causal reasoning** – "did evictions cause this failure?" requires traversing event→usage→run edges
+
+The graph isn't an optimization – it's the reasoning model.
 
 ---
 
