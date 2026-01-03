@@ -12,6 +12,8 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
+from src.agents.root_cause_investigator import RootCauseInvestigator
+
 from src.config import (
     LLM_PROVIDER,
     get_chat_model_name,
@@ -484,6 +486,11 @@ class DatabricksUsageAssistant:
     # -----------------------------------------------------------------------
 
     def answer(self, question: str, focus: Optional[dict] = None) -> ChatResult:
+        # NEW - Check for agent call
+        if question.startswith("AGENT:"):
+            return self._handle_agent_call(question, focus)
+    
+        # ... existing logic continues
         if _looks_like_job_count_question(question):
             return self._answer_global_aggregate("job")
 
@@ -561,3 +568,123 @@ class DatabricksUsageAssistant:
             llm_prompt=llm_prompt_text,
             llm_context=context_str,
         )
+    
+    def _handle_agent_call(self, question: str, focus: Optional[dict] = None) -> ChatResult:
+        """
+        Handle agent invocation.
+        
+        Format: AGENT:agent_name param1=value1 param2=value2 task=description
+        
+        Example:
+            AGENT:root_cause_investigator entity_id=J-001 date=2024-12-05 task=Investigate anomaly
+        """
+        # Parse agent call
+        parts = question.split()
+        if len(parts) < 1:
+            return ChatResult(
+                answer="Invalid agent call format",
+                graph_explanation="Failed to parse agent call"
+            )
+        
+        agent_spec = parts[0]
+        if ':' not in agent_spec:
+            return ChatResult(
+                answer="Invalid agent call: missing agent name",
+                graph_explanation="Failed to parse agent call"
+            )
+        
+        agent_name = agent_spec.split(':')[1]
+        
+        # Parse parameters and task
+        context = {}
+        task_parts = []
+        in_task = False
+        
+        for part in parts[1:]:
+            if part.startswith('task='):
+                in_task = True
+                task_parts.append(part[5:])  # Remove 'task=' prefix
+            elif in_task:
+                task_parts.append(part)
+            elif '=' in part:
+                key, value = part.split('=', 1)
+                context[key] = value
+        
+        task = ' '.join(task_parts) if task_parts else "Investigate"
+        
+        # Execute the appropriate agent
+        if agent_name == 'root_cause_investigator':
+            from src.config import USAGE_DB_PATH
+            
+            agent = RootCauseInvestigator(
+                db_path=str(USAGE_DB_PATH),
+                llm=self.llm,
+                verbose=False
+            )
+            
+            try:
+                result = agent.execute(task=task, context=context)
+                
+                # Format result for display with Markdown
+                # FIXED: No leading spaces in the markdown!
+                answer_text = f"""## 🤖 Agent Investigation Complete
+
+### Root Cause
+**Confidence: {result.confidence:.0%}**
+
+{result.conclusion}
+
+---
+
+### Supporting Evidence
+{chr(10).join(f'- {e}' for e in result.evidence)}
+
+---
+
+### Recommendations
+
+{chr(10).join(f'{r}' for r in result.recommendations)}
+
+---
+
+<details>
+<summary><b>View Investigation Steps ({len(result.steps)} steps)</b></summary>
+
+{agent.format_steps_for_display()}
+
+</details>
+"""
+                
+                # Build graph explanation for debug panel
+                tools_used = [s.tool_used for s in result.steps if s.tool_used]
+                unique_tools = list(set(tools_used))
+                
+                graph_explanation = f"""Agent Investigation Summary:
+- Agent: {agent_name}
+- Total steps: {len(result.steps)}
+- Tools used: {', '.join(unique_tools)}
+- Confidence: {result.confidence:.0%}
+
+Investigation Steps:
+{chr(10).join(f'{i+1}. {s.action}' for i, s in enumerate(result.steps))}
+"""
+                
+                return ChatResult(
+                    answer=answer_text,
+                    context_docs=[],
+                    graph_explanation=graph_explanation,
+                    llm_prompt=f"Agent execution: {task}",
+                    llm_context=f"Context: {context}"
+                )
+                
+            except Exception as e:
+                return ChatResult(
+                    answer=f"Agent execution failed: {str(e)}",
+                    graph_explanation=f"Error in agent {agent_name}: {str(e)}"
+                )
+        
+        else:
+            return ChatResult(
+                answer=f"Unknown agent: {agent_name}",
+                graph_explanation=f"Agent '{agent_name}' not found. Available agents: root_cause_investigator"
+            )

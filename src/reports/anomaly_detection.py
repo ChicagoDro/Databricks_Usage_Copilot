@@ -391,6 +391,16 @@ def build_action_chips(sel: Selection, filters: Dict[str, Any]) -> List[ActionCh
     
     chips = [
         ActionChip(
+            label="🤖 Auto-Investigate",
+            prompt=(
+                f"AGENT:root_cause_investigator "
+                f"entity_id={entity_id} "
+                f"date={date} "
+                f"task=Investigate {severity} anomaly for {entity_name}"
+            ),
+            focus=focus
+        ),        
+        ActionChip(
             label="🔍 Root Cause Analysis",
             prompt=(
                 f"Analyze the {severity} severity cost anomaly for {entity_name} (ID: {entity_id}) on {date}. "
