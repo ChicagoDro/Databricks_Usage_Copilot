@@ -81,14 +81,79 @@ ORDER BY usage_date;
 
 def load_df(db_path: str, filters: Dict[str, Any]) -> pd.DataFrame:
     conn = sqlite3.connect(db_path)
+    
+    # Extract filters (note: workspace filter less relevant for type-level view)
+    date_start = filters.get('date_start', '2000-01-01')
+    date_end = filters.get('date_end', '2099-12-31')
+    
+    # Main SQL with date filter
+    main_sql = f"""
+WITH daily_usage AS (
+  SELECT
+    parent_type AS compute_type,
+    usage_date,
+    SUM(total_cost) AS daily_cost,
+    SUM(dbus_consumed) AS daily_dbus,
+    COUNT(*) AS usage_records,
+    AVG(avg_cpu_utilization) AS avg_cpu,
+    COUNT(DISTINCT parent_id) AS unique_entities
+  FROM compute_usage
+  WHERE usage_date >= '{date_start}'
+    AND usage_date <= '{date_end}'
+  GROUP BY parent_type, usage_date
+),
+type_summary AS (
+  SELECT
+    compute_type,
+    SUM(daily_cost) AS cost_total_usd,
+    SUM(daily_dbus) AS dbus_total,
+    AVG(daily_cost) AS avg_daily_cost,
+    MAX(daily_cost) AS max_daily_cost,
+    MIN(daily_cost) AS min_daily_cost,
+    AVG(avg_cpu) AS avg_cpu_utilization,
+    SUM(usage_records) AS total_usage_records,
+    COUNT(DISTINCT usage_date) AS days_active,
+    AVG(unique_entities) AS avg_active_entities
+  FROM daily_usage
+  GROUP BY compute_type
+)
+SELECT
+  compute_type,
+  cost_total_usd,
+  dbus_total,
+  avg_daily_cost,
+  max_daily_cost,
+  min_daily_cost,
+  CAST(100.0 * cost_total_usd / NULLIF(SUM(cost_total_usd) OVER (), 0) AS REAL) AS pct_of_total,
+  avg_cpu_utilization,
+  total_usage_records,
+  days_active,
+  avg_active_entities,
+  CAST((max_daily_cost - min_daily_cost) / NULLIF(avg_daily_cost, 0) AS REAL) AS cost_volatility_ratio
+FROM type_summary
+ORDER BY cost_total_usd DESC;
+"""
+    
+    # Trend SQL with date filter
+    trend_sql = f"""
+SELECT
+  parent_type AS compute_type,
+  usage_date,
+  SUM(total_cost) AS daily_cost
+FROM compute_usage
+WHERE usage_date >= '{date_start}'
+  AND usage_date <= '{date_end}'
+GROUP BY parent_type, usage_date
+ORDER BY usage_date;
+"""
+    
     try:
-        df = pd.read_sql_query(COMPUTE_TYPE_COST_SQL, conn)
-        
-        # Also load trend data
-        trend_df = pd.read_sql_query(DAILY_TREND_SQL, conn)
-        df._trend_data = trend_df  # Attach to main df
+        df = pd.read_sql_query(main_sql, conn)
+        trend_df = pd.read_sql_query(trend_sql, conn)
+        df._trend_data = trend_df
     finally:
         conn.close()
+    
     return df
 
 

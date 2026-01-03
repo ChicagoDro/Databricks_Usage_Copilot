@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from datetime import datetime, timedelta
+import io
+
 import streamlit as st
 
 from src.rag_context_aware_prompts.chat_orchestrator import DatabricksUsageAssistant
@@ -263,6 +266,7 @@ def _select_report(key: str) -> None:
     st.session_state.selected_report_key = key
     st.session_state.pending_prompt = None
     st.session_state.selection = None
+    st.session_state.commentary = []  # Clear commentary when switching reports
     st.rerun()
 
 
@@ -434,6 +438,20 @@ def init_state() -> None:
         st.session_state._debug_prompt = None
     if "_debug_context" not in st.session_state:
         st.session_state._debug_context = None
+    
+    # Filters
+    if "date_filter_start" not in st.session_state:
+        # Default to last 30 days
+        st.session_state.date_filter_start = datetime.now() - timedelta(days=30)
+    
+    if "date_filter_end" not in st.session_state:
+        st.session_state.date_filter_end = datetime.now()
+    
+    if "workspace_filter" not in st.session_state:
+        st.session_state.workspace_filter = []  # Empty = all workspaces
+    
+    if "apply_filters" not in st.session_state:
+        st.session_state.apply_filters = True
 
 
 def assistant() -> DatabricksUsageAssistant:
@@ -446,7 +464,10 @@ def run_commentary(prompt: str) -> None:
     if sel is not None:
         focus = {"entity_type": sel.entity_type, "entity_id": sel.entity_id}
 
-    result = assistant().answer(prompt, focus=focus)
+    # ADD LOADING INDICATOR:
+    with st.spinner("Generating AI commentary..."):
+        result = assistant().answer(prompt, focus=focus)
+    
     st.session_state.commentary.append({"prompt": prompt, "response": result.answer})
 
     if st.session_state.debug_mode:
@@ -457,7 +478,6 @@ def run_commentary(prompt: str) -> None:
         st.session_state._debug_graph = None
         st.session_state._debug_prompt = None
         st.session_state._debug_context = None
-
 
 # ============================
 # Chip rendering (taxonomy + deterministic)
@@ -527,6 +547,20 @@ def render_action_chips(report, sel: SelectionLike) -> None:
     _render_chip_groups(combined, key_prefix=f"chip:{report.key}")
 
 
+def get_available_workspaces() -> list:
+    """Query DB for available workspaces"""
+    import sqlite3
+    try:
+        conn = sqlite3.connect(st.session_state.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT workspace_id, workspace_name FROM workspace ORDER BY workspace_name")
+        workspaces = cursor.fetchall()
+        conn.close()
+        return [(ws_id, ws_name) for ws_id, ws_name in workspaces]
+    except Exception as e:
+        st.sidebar.error(f"Failed to load workspaces: {e}")
+        return []
+    
 # ============================
 # App UI
 # ============================
@@ -548,9 +582,94 @@ st.caption("Deterministic reporting + contextual AI commentary")
 with st.sidebar:
     _render_sidebar_report_nav(report_map)
 
+    st.markdown("---")
+    
+    # =========================
+    # FILTERS SECTION
+    # =========================
+    st.header("📅 Filters")
+    
+    with st.expander("Date Range & Workspace", expanded=False):
+        # Date range filter
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input(
+                "Start Date",
+                value=st.session_state.date_filter_start,
+                key="filter_start_date"
+            )
+        with col2:
+            end_date = st.date_input(
+                "End Date",
+                value=st.session_state.date_filter_end,
+                key="filter_end_date"
+            )
+        
+        # Quick date range buttons
+        st.caption("Quick ranges:")
+        qr_col1, qr_col2, qr_col3 = st.columns(3)
+        with qr_col1:
+            if st.button("Last 7d", key="qr_7d"):
+                st.session_state.date_filter_start = datetime.now() - timedelta(days=7)
+                st.session_state.date_filter_end = datetime.now()
+                st.rerun()
+        with qr_col2:
+            if st.button("Last 30d", key="qr_30d"):
+                st.session_state.date_filter_start = datetime.now() - timedelta(days=30)
+                st.session_state.date_filter_end = datetime.now()
+                st.rerun()
+        with qr_col3:
+            if st.button("Last 90d", key="qr_90d"):
+                st.session_state.date_filter_start = datetime.now() - timedelta(days=90)
+                st.session_state.date_filter_end = datetime.now()
+                st.rerun()
+        
+        # Workspace filter
+        workspaces = get_available_workspaces()
+        if workspaces:
+            workspace_options = [f"{ws_name} ({ws_id})" for ws_id, ws_name in workspaces]
+            selected_workspaces = st.multiselect(
+                "Workspaces",
+                options=workspace_options,
+                default=st.session_state.workspace_filter,
+                key="filter_workspaces",
+                help="Leave empty to show all workspaces"
+            )
+            st.session_state.workspace_filter = selected_workspaces
+        
+        # Apply filters button
+        if st.button("🔄 Apply Filters", type="primary", use_container_width=True):
+            st.session_state.date_filter_start = start_date
+            st.session_state.date_filter_end = end_date
+            st.session_state.apply_filters = True
+            st.cache_data.clear()  # Clear cached data
+            st.rerun()
+        
+        # Reset filters
+        if st.button("↺ Reset", use_container_width=True):
+            st.session_state.date_filter_start = datetime.now() - timedelta(days=30)
+            st.session_state.date_filter_end = datetime.now()
+            st.session_state.workspace_filter = []
+            st.cache_data.clear()
+            st.rerun()
+    
+    # Show active filters summary
+    if st.session_state.workspace_filter or st.session_state.apply_filters:
+        st.caption("**Active Filters:**")
+        st.caption(f"📅 {st.session_state.date_filter_start.strftime('%Y-%m-%d')} to {st.session_state.date_filter_end.strftime('%Y-%m-%d')}")
+        if st.session_state.workspace_filter:
+            st.caption(f"🏢 {len(st.session_state.workspace_filter)} workspace(s)")
+    
+    st.markdown("---")   
+
     st.header("Controls")
     st.checkbox("Debug mode", key="debug_mode")
     st.caption(f"DB: `{st.session_state.db_path}`")
+
+    # Refresh button
+    if st.button("🔄 Refresh Data", use_container_width=True, help="Clear cache and reload"):
+        st.cache_data.clear()
+        st.rerun()   
 
     if st.button("Clear selection"):
         st.session_state.selection = None
@@ -562,16 +681,57 @@ with st.sidebar:
         st.rerun()
 
 
+
+
 viz_col, comm_col = st.columns([2.2, 1.0], gap="large")
 
 with viz_col:
     st.subheader(current_report.name)
     st.caption(current_report.description)
 
-    df = current_report.load_df(st.session_state.db_path, st.session_state.filters)
-    current_report.render_viz(df, st.session_state.filters)
+    active_filters = {
+        **st.session_state.filters,  # Existing filters
+        "date_start": st.session_state.date_filter_start.strftime('%Y-%m-%d'),
+        "date_end": st.session_state.date_filter_end.strftime('%Y-%m-%d'),
+        "workspaces": [
+            ws.split('(')[1].rstrip(')')  # Extract workspace_id from "Name (ID)"
+            for ws in st.session_state.workspace_filter
+        ] if st.session_state.workspace_filter else []
+    }
 
-    selections = current_report.build_selections(df, st.session_state.filters)
+    # Load data with loading indicator
+    with st.spinner("Loading report data..."):
+        df = current_report.load_df(st.session_state.db_path, active_filters)
+
+    # Render with loading indicator
+    with st.spinner("Rendering visualization..."):
+        current_report.render_viz(df, active_filters)
+
+    # Export functionality
+    st.markdown("---")
+    export_col1, export_col2 = st.columns([3, 1])
+
+    with export_col1:
+        st.caption(f"Showing data from {active_filters['date_start']} to {active_filters['date_end']}")
+
+    with export_col2:
+        if not df.empty:
+            csv_buffer = io.StringIO()
+            df.to_csv(csv_buffer, index=False)
+            csv_data = csv_buffer.getvalue()
+            
+            st.download_button(
+                label="📥 Export CSV",
+                data=csv_data,
+                file_name=f"{current_report.key}_{datetime.now():%Y%m%d_%H%M}.csv",
+                mime="text/csv",
+                key=f"export_{current_report.key}",
+                help="Download this report's data as CSV"
+            )
+        else:
+            st.button("📥 Export CSV", disabled=True, help="No data to export")
+
+    selections = current_report.build_selections(df, active_filters)
     if selections:
         st.markdown("**Select an item:**")
         cols = st.columns(3)

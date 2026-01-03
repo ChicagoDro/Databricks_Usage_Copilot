@@ -73,10 +73,77 @@ ORDER BY rank;
 
 def load_df(db_path: str, filters: Dict[str, Any]) -> pd.DataFrame:
     conn = sqlite3.connect(db_path)
+    
+    # Extract filters
+    date_start = filters.get('date_start', '2000-01-01')
+    date_end = filters.get('date_end', '2099-12-31')
+    workspaces = filters.get('workspaces', [])
+    
+    # Build workspace clause
+    workspace_clause = ""
+    if workspaces:
+        ws_list = ','.join(f"'{w}'" for w in workspaces)
+        workspace_clause = f"AND j.workspace_id IN ({ws_list})"
+    
+    # Build SQL with filters
+    sql = f"""
+WITH job_cost AS (
+  SELECT
+    j.job_id,
+    j.job_name,
+    SUM(u.total_cost) AS cost_total_usd,
+    COUNT(DISTINCT r.job_run_id) AS run_count,
+    AVG(r.duration_ms) / 1000.0 / 60.0 AS avg_duration_mins,
+    CAST(100.0 * SUM(CASE WHEN r.run_status = 'FAILED' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0) AS REAL) AS failure_rate_pct,
+    AVG(r.spot_ratio) AS avg_spot_ratio
+  FROM compute_usage u
+  JOIN job_runs r ON r.job_run_id = u.parent_id
+  JOIN jobs j ON j.job_id = r.job_id
+  WHERE u.parent_type = 'JOB_RUN'
+    AND u.usage_date >= '{date_start}'
+    AND u.usage_date <= '{date_end}'
+    {workspace_clause}
+  GROUP BY j.job_id, j.job_name
+),
+ranked AS (
+  SELECT
+    job_id,
+    job_name,
+    cost_total_usd,
+    run_count,
+    avg_duration_mins,
+    failure_rate_pct,
+    avg_spot_ratio,
+    SUM(cost_total_usd) OVER () AS grand_total_usd,
+    ROW_NUMBER() OVER (ORDER BY cost_total_usd DESC) AS rank,
+    SUM(cost_total_usd) OVER (
+      ORDER BY cost_total_usd DESC
+      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS cumulative_cost_usd
+  FROM job_cost
+)
+SELECT
+  rank,
+  job_id,
+  job_name,
+  cost_total_usd,
+  run_count,
+  avg_duration_mins,
+  failure_rate_pct,
+  avg_spot_ratio,
+  grand_total_usd,
+  cumulative_cost_usd,
+  CAST(100.0 * cumulative_cost_usd / NULLIF(grand_total_usd, 0) AS REAL) AS cumulative_pct,
+  CAST(100.0 * cost_total_usd / NULLIF(grand_total_usd, 0) AS REAL) AS pct_of_total
+FROM ranked
+ORDER BY rank;
+"""
+    
     try:
-        df = pd.read_sql_query(PARETO_SQL, conn)
+        df = pd.read_sql_query(sql, conn)
     finally:
         conn.close()
+    
     return df
 
 

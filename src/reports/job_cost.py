@@ -100,10 +100,104 @@ ORDER BY cost_total_usd DESC;
 
 def load_df(db_path: str, filters: Dict[str, Any]) -> pd.DataFrame:
     conn = sqlite3.connect(db_path)
+    
+    # Extract filters with defaults
+    date_start = filters.get('date_start', '2000-01-01')
+    date_end = filters.get('date_end', '2099-12-31')
+    workspaces = filters.get('workspaces', [])
+    
+    # Build workspace filter clause
+    workspace_clause = ""
+    if workspaces:
+        ws_list = ','.join(f"'{w}'" for w in workspaces)
+        workspace_clause = f"AND j.workspace_id IN ({ws_list})"
+    
+    # Build SQL with filters injected
+    sql = f"""
+WITH job_runs_enriched AS (
+  SELECT
+    j.job_id,
+    j.job_name,
+    j.workspace_id,
+    r.job_run_id,
+    r.start_time,
+    r.run_status,
+    r.duration_ms,
+    r.spot_ratio,
+    u.total_cost,
+    u.dbus_consumed,
+    u.avg_cpu_utilization,
+    u.avg_memory_gb,
+    DATE(r.start_time) AS run_date
+  FROM compute_usage u
+  JOIN job_runs r ON r.job_run_id = u.parent_id
+  JOIN jobs j ON j.job_id = r.job_id
+  WHERE u.parent_type = 'JOB_RUN'
+    AND u.usage_date >= '{date_start}'
+    AND u.usage_date <= '{date_end}'
+    {workspace_clause}
+),
+job_summary AS (
+  SELECT
+    job_id,
+    job_name,
+    workspace_id,
+    
+    -- Cost metrics
+    SUM(total_cost) AS cost_total_usd,
+    SUM(total_cost * spot_ratio) AS cost_spot_usd,
+    SUM(total_cost * (1 - spot_ratio)) AS cost_ondemand_usd,
+    
+    -- Reliability metrics
+    COUNT(*) AS total_runs,
+    SUM(CASE WHEN run_status = 'SUCCESS' THEN 1 ELSE 0 END) AS success_runs,
+    SUM(CASE WHEN run_status = 'FAILED' THEN 1 ELSE 0 END) AS failed_runs,
+    SUM(CASE WHEN run_status = 'SKIPPED' THEN 1 ELSE 0 END) AS skipped_runs,
+    
+    -- Performance metrics
+    AVG(duration_ms) / 1000.0 / 60.0 AS avg_duration_mins,
+    AVG(avg_cpu_utilization) AS avg_cpu_utilization,
+    MAX(avg_memory_gb) AS max_memory_gb,
+    
+    -- Spot usage
+    AVG(spot_ratio) AS avg_spot_ratio,
+    
+    -- DBU efficiency
+    SUM(dbus_consumed) AS total_dbus,
+    CASE WHEN SUM(dbus_consumed) > 0 
+         THEN SUM(total_cost) / SUM(dbus_consumed)
+         ELSE 0 END AS cost_per_dbu
+         
+  FROM job_runs_enriched
+  GROUP BY job_id, job_name, workspace_id
+),
+job_trend AS (
+  SELECT
+    job_id,
+    run_date,
+    SUM(total_cost) AS daily_cost,
+    COUNT(*) AS daily_runs
+  FROM job_runs_enriched
+  GROUP BY job_id, run_date
+)
+SELECT 
+  s.*,
+  CAST(100.0 * s.success_runs / NULLIF(s.total_runs, 0) AS REAL) AS success_rate_pct,
+  CAST(100.0 * s.failed_runs / NULLIF(s.total_runs, 0) AS REAL) AS failure_rate_pct,
+  
+  -- Cost concentration (for alerting)
+  SUM(s.cost_total_usd) OVER () AS grand_total_cost,
+  CAST(100.0 * s.cost_total_usd / NULLIF(SUM(s.cost_total_usd) OVER (), 0) AS REAL) AS pct_of_total_cost
+  
+FROM job_summary s
+ORDER BY cost_total_usd DESC;
+"""
+    
     try:
-        df = pd.read_sql_query(JOB_COST_SQL, conn)
+        df = pd.read_sql_query(sql, conn)
     finally:
         conn.close()
+    
     return df
 
 

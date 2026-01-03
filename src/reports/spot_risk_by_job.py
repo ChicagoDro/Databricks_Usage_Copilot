@@ -120,12 +120,113 @@ ORDER BY eviction_date, j.job_id;
 
 def load_df(db_path: str, filters: Dict[str, Any]) -> pd.DataFrame:
     conn = sqlite3.connect(db_path)
+    
+    # Extract filters
+    date_start = filters.get('date_start', '2000-01-01')
+    date_end = filters.get('date_end', '2099-12-31')
+    workspaces = filters.get('workspaces', [])
+    
+    # Build workspace clause (used in both queries)
+    workspace_clause = ""
+    if workspaces:
+        ws_list = ','.join(f"'{w}'" for w in workspaces)
+        workspace_clause = f"AND j.workspace_id IN ({ws_list})"
+    
+    # Main risk SQL with filters
+    risk_sql = f"""
+WITH job_runs_detail AS (
+  SELECT
+    r.job_run_id,
+    r.job_id,
+    j.job_name,
+    r.run_status,
+    r.spot_ratio,
+    r.duration_ms,
+    DATE(r.start_time) AS run_date,
+    u.total_cost,
+    u.compute_usage_id
+  FROM job_runs r
+  JOIN jobs j ON j.job_id = r.job_id
+  JOIN compute_usage u ON u.parent_id = r.job_run_id
+  WHERE u.parent_type = 'JOB_RUN'
+    AND u.usage_date >= '{date_start}'
+    AND u.usage_date <= '{date_end}'
+    {workspace_clause}
+),
+eviction_counts AS (
+  SELECT
+    jrd.job_id,
+    COUNT(DISTINCT e.event_id) AS eviction_count,
+    COUNT(DISTINCT DATE(e.event_time)) AS days_with_evictions
+  FROM job_runs_detail jrd
+  JOIN events e ON e.compute_usage_id = jrd.compute_usage_id
+  WHERE e.event_type = 'SPOT_EVICTION'
+  GROUP BY jrd.job_id
+),
+job_risk_profile AS (
+  SELECT
+    jrd.job_id,
+    jrd.job_name,
+    SUM(jrd.total_cost) AS cost_total_usd,
+    SUM(jrd.total_cost * jrd.spot_ratio) AS cost_spot_usd,
+    SUM(jrd.total_cost * (1 - jrd.spot_ratio)) AS cost_ondemand_usd,
+    AVG(jrd.spot_ratio) AS avg_spot_ratio,
+    CAST(100.0 * SUM(jrd.total_cost * jrd.spot_ratio) / NULLIF(SUM(jrd.total_cost), 0) AS REAL) AS spot_cost_pct,
+    COUNT(*) AS total_runs,
+    SUM(CASE WHEN jrd.run_status = 'FAILED' THEN 1 ELSE 0 END) AS failed_runs,
+    CAST(100.0 * SUM(CASE WHEN jrd.run_status = 'FAILED' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0) AS REAL) AS failure_rate_pct,
+    COALESCE(ec.eviction_count, 0) AS eviction_count,
+    COALESCE(ec.days_with_evictions, 0) AS days_with_evictions,
+    AVG(jrd.duration_ms) / 1000.0 / 60.0 AS avg_duration_mins,
+    (SUM(jrd.total_cost * jrd.spot_ratio) * (1 + COALESCE(ec.eviction_count, 0) * 0.1)) +
+    (SUM(CASE WHEN jrd.run_status = 'FAILED' THEN jrd.total_cost ELSE 0 END) * 2) AS risk_score
+  FROM job_runs_detail jrd
+  LEFT JOIN eviction_counts ec ON ec.job_id = jrd.job_id
+  GROUP BY jrd.job_id, jrd.job_name
+),
+potential_savings AS (
+  SELECT
+    job_id,
+    cost_spot_usd * 0.7 AS spot_discount_benefit,
+    cost_spot_usd * 1.43 AS cost_if_all_ondemand
+  FROM job_risk_profile
+)
+SELECT
+  jrp.*,
+  ps.spot_discount_benefit,
+  ps.cost_if_all_ondemand,
+  ps.cost_if_all_ondemand - jrp.cost_total_usd AS reliability_premium
+FROM job_risk_profile jrp
+LEFT JOIN potential_savings ps ON ps.job_id = jrp.job_id
+ORDER BY risk_score DESC, cost_spot_usd DESC;
+"""
+    
+    # Timeline SQL with filters
+    timeline_sql = f"""
+SELECT
+  j.job_id,
+  j.job_name,
+  DATE(e.event_time) AS eviction_date,
+  COUNT(*) AS evictions_that_day
+FROM events e
+JOIN compute_usage u ON u.compute_usage_id = e.compute_usage_id
+JOIN job_runs r ON r.job_run_id = u.parent_id
+JOIN jobs j ON j.job_id = r.job_id
+WHERE e.event_type = 'SPOT_EVICTION'
+  AND DATE(e.event_time) >= '{date_start}'
+  AND DATE(e.event_time) <= '{date_end}'
+  {workspace_clause}
+GROUP BY j.job_id, j.job_name, DATE(e.event_time)
+ORDER BY eviction_date, j.job_id;
+"""
+    
     try:
-        df = pd.read_sql_query(SPOT_RISK_SQL, conn)
-        timeline_df = pd.read_sql_query(EVICTION_TIMELINE_SQL, conn)
+        df = pd.read_sql_query(risk_sql, conn)
+        timeline_df = pd.read_sql_query(timeline_sql, conn)
         df._eviction_timeline = timeline_df
     finally:
         conn.close()
+    
     return df
 
 
