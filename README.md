@@ -371,102 +371,136 @@ This project demonstrates how to build **enterprise-ready AI copilots** that:
 
 ---
 
-## Roadmap
+## Roadmap: Depth Over Breadth
 
-The Copilot is intentionally built as an extensible system. Upcoming work focuses on expanding coverage across the pillars of data engineering and introducing higher-level reasoning on top of deterministic foundations.
+This project prioritizes **architectural depth and novel capabilities** over incremental feature expansion.
 
-### MCP (Model Context Protocol) Integration (In Progress)
+### Phase 1: Deterministic Foundation ✅ **Complete**
 
-The next major enhancement is **MCP server integration** to enable agentic workflows with external tools.
+**Achievements:**
+- 5 production-ready reports demonstrating the report-driven pattern
+- GraphRAG implementation for operational telemetry
+- Statistical anomaly detection with custom baseline models
+- Agent-based investigation (Auto-Investigate capability)
+- Dual-corpus RAG (telemetry + Databricks docs)
 
-**Planned MCP Capabilities:**
+**Value Demonstrated:**
+- Report-driven AI is more trustworthy than chat-first
+- GraphRAG enables causal reasoning over operational data
+- Deterministic action chips guide users to valuable questions
+
+---
+
+### Phase 2: MCP Integration 🔄 **In Progress**
+
+**Goal:** Enable agentic workflows with real-world tool integration
+
+**Planned MCP Servers:**
 
 1. **Databricks Workspace MCP Server**
-   - Query job configurations, cluster settings, and workspace metadata
-   - Validate recommendations against actual infrastructure
-   - Fetch real-time job run status and logs
-   - Enable "show me the config" → actual API data, not hallucinated
+   - Query actual job configurations and cluster settings via Databricks API
+   - Validate AI recommendations against real infrastructure state
+   - Enable "show me the config" → actual API data, not hallucinated configs
+   - **Value:** Grounds AI recommendations in reality
 
 2. **Filesystem MCP Server**
-   - Read/write configuration files (job JSON, cluster policies)
-   - Generate configuration diffs for recommendations
-   - Export reports and analysis to local filesystem
-   - Support "save this analysis" workflows
+   - Generate configuration files (job JSON, cluster policies, Terraform)
+   - Create diffs showing before/after for recommendations
+   - Export analysis reports and visualizations
+   - **Value:** Makes recommendations actionable, not just advisory
 
 3. **Web Search MCP Server**
-   - Look up current Databricks pricing
-   - Find recent product updates and best practices
+   - Look up current Databricks pricing and product updates
+   - Cross-reference recommendations with latest best practices
    - Validate assumptions against external knowledge
-   - Enable "what's the current spot discount?" → real-time pricing
+   - **Value:** Keeps recommendations current and fact-checked
 
-**MCP Integration Benefits:**
-- **Grounded recommendations** – Validate against actual workspace state
-- **Actionable outputs** – Generate configuration files, not just text
-- **Current information** – Access real-time pricing and product updates
-- **Verifiable claims** – Cross-reference recommendations with actual data
+**Architecture Impact:**
+- Agents can now **verify** recommendations before presenting them
+- AI can generate **actual configuration files**, not just suggestions
+- Recommendations become **executable**, not just descriptive
 
-**Integration Timeline:**
-1. ✅ Phase 1: Deterministic foundation (reports, chips, filters) – **Complete**
-2. 🔄 Phase 2: MCP server integration – **Next**
-3. 📋 Phase 3: Multi-agent orchestration
-4. 📋 Phase 4: Evaluation framework
+**Conference Talking Points:**
+- "How MCP bridges the gap between AI advice and production systems"
+- "Making AI recommendations verifiable and actionable"
+- "When to use agents vs prompts in production AI systems"
 
-### Pillar-Based Reports (Planned)
+---
 
-Additional reports will be added under the following pillars:
+### Phase 3: Evaluation Framework 📋 **Next**
 
-- **Cost Management** *(5/8 complete)*
-  - ✅ Cost anomalies vs baseline
-  - ✅ Cost concentration (Pareto)
-  - ✅ Spot risk analysis
-  - 📋 Cost efficiency ($ per run, $ per GB processed)
-  - 📋 Spot vs on-demand counterfactual analysis
+**Goal:** Treat AI behavior as a testable system, not a black box
 
-- **Reliability** *(Planned)*
-  - Job reliability scorecards (success rate, retries, SLA breaches)
-  - Failure pattern analysis (error signatures, root causes)
-  - Fragility detection (jobs that barely succeed)
+**Planned Components:**
 
-- **Performance & Efficiency** *(Planned)*
-  - Runtime regression detection (p50 / p95 drift)
-  - Resource utilization efficiency (CPU/memory)
-  - Shuffle and spill hotspots
+1. **Deterministic Test Suite**
+   - Regression tests for action chip prompts (ensure stability)
+   - Ground truth evaluation sets for key scenarios
+   - SQL validation (reports return expected data for known inputs)
 
-- **Data Quality** *(Planned)*
-  - Dataset freshness monitoring
-  - Volume drift detection
-  - Upstream/downstream blast radius analysis
+2. **Response Quality Metrics**
+   - Groundedness checks (does answer reference actual telemetry?)
+   - Citation accuracy (are Databricks docs links correct?)
+   - Recommendation validity (can suggestions actually be implemented?)
 
-- **Resilience** *(Planned)*
-  - Recovery time metrics (MTTR)
-  - Sensitivity to configuration or code changes
-  - Single points of failure identification
+3. **Performance Monitoring**
+   - Token usage and cost tracking per interaction
+   - Latency budgets for report loading and AI generation
+   - Cache hit rates and retrieval quality
 
-Reports not yet implemented are visible in the UI as disabled placeholders to make the system's intended scope explicit.
+**Architecture Impact:**
+- AI behavior becomes **repeatable and testable**
+- Regressions are **caught before deployment**
+- System performance is **measurable and improvable**
 
-### Agent-Based Capabilities (Future)
+**Conference Talking Points:**
+- "How to test AI systems that use LLMs"
+- "Evaluation strategies for enterprise AI copilots"
+- "Moving from demos to production: the testing gap"
 
-Once MCP tools are integrated, the Copilot will introduce **agents** that can:
+---
 
-- Execute multi-step investigations across reports
-- Compare alternative optimization strategies using real workspace data
-- Propose remediation plans with verification steps (via Databricks API)
-- Generate configuration files for recommended changes
-- Escalate from diagnosis → optimization → monitoring automatically
+### Phase 4: Multi-Agent Orchestration 📋 **Future**
 
-Agents will build on deterministic chips and MCP tools rather than replacing them.
+**Goal:** Coordinate specialized agents for complex investigations
 
-### Evaluation & Testing (Future)
+**Planned Capabilities:**
 
-Planned work also includes:
+- **Investigation Agent** – Deep-dive root cause analysis (already prototyped in Auto-Investigate)
+- **Configuration Agent** – Generate and validate config changes using MCP tools
+- **Comparison Agent** – Evaluate alternative optimization strategies in parallel
+- **Verification Agent** – Test recommendations in sandbox environments before applying
 
-- Prompt and response regression tests
-- Deterministic evaluation sets for key scenarios
-- Groundedness checks against report data
-- Cost and latency tracking for AI interactions
-- MCP tool call accuracy metrics
+**Orchestration Patterns:**
+- Sequential workflows (diagnose → optimize → verify)
+- Parallel comparisons (evaluate multiple strategies simultaneously)
+- Escalation logic (simple fixes vs complex migrations)
 
-The goal is to treat AI behavior as a **testable system**, not a black box.
+**Architecture Impact:**
+- Move from single-shot AI to **multi-step reasoning**
+- Enable **comparative analysis** (which optimization is best?)
+- Support **validation loops** (test before recommending)
+
+**Conference Talking Points:**
+- "Designing multi-agent workflows for operational AI"
+- "When agents should collaborate vs work independently"
+- "Orchestration patterns for production AI systems"
+
+---
+
+## Why This Roadmap?
+
+**Not Planned:**
+- ❌ More reports (proven pattern, diminishing returns)
+- ❌ Additional UI polish (not architecturally novel)
+- ❌ More data sources (doesn't demonstrate new capabilities)
+
+**Prioritized:**
+- ✅ **MCP integration** – Cutting-edge agentic AI tooling
+- ✅ **Evaluation framework** – Production engineering rigor
+- ✅ **Multi-agent orchestration** – Advanced architectural pattern
+
+Each phase demonstrates a **new technical capability** and provides **conference-worthy material**. The goal is architectural depth, not feature breadth.
 
 ---
 
