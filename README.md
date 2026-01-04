@@ -490,17 +490,71 @@ This project prioritizes **architectural depth and novel capabilities** over inc
 
 ## Why This Roadmap?
 
-**Not Planned:**
-- ❌ More reports (proven pattern, diminishing returns)
-- ❌ Additional UI polish (not architecturally novel)
-- ❌ More data sources (doesn't demonstrate new capabilities)
+### The Production Gap
 
-**Prioritized:**
-- ✅ **MCP integration** – Cutting-edge agentic AI tooling
-- ✅ **Evaluation framework** – Production engineering rigor
-- ✅ **Multi-agent orchestration** – Advanced architectural pattern
+Current state: The copilot provides **accurate analysis and recommendations**, but stops short of production readiness in three critical areas:
 
-Each phase demonstrates a **new technical capability** and provides **conference-worthy material**. The goal is architectural depth, not feature breadth.
+**1. Recommendations aren't verifiable**
+- AI suggests "increase cluster size to 8 nodes" 
+- But what if the current config is already 8 nodes?
+- Without MCP, the AI can't check actual state
+
+**2. System behavior isn't testable**
+- Prompts can drift over time
+- No way to catch regressions before users see them
+- Can't measure if improvements actually improve outcomes
+
+**3. Complex workflows require manual orchestration**
+- Users must run investigation → get recommendation → verify validity → apply fix
+- Each step is a separate interaction
+- No way to automate multi-step reasoning
+
+### The Solution Path
+
+**MCP Integration** solves the verification problem:
+- Recommendations reference **actual infrastructure state**, not assumptions
+- "Your cluster is currently 4 nodes; increasing to 8 would cost $X more per day"
+- AI can verify claims before making them
+- **Enterprise value:** Recommendations become trustworthy enough to act on
+
+**Evaluation Framework** solves the reliability problem:
+- Test suite catches prompt drift and regressions
+- Metrics prove the system is getting better (or worse)
+- Ground truth validation ensures answers match reality
+- **Enterprise value:** System behavior becomes predictable and measurable
+
+**Multi-Agent Orchestration** solves the workflow problem:
+- Investigation agent finds root cause
+- Configuration agent generates fix
+- Verification agent validates fix against real workspace
+- Comparison agent evaluates alternatives
+- **Enterprise value:** End-to-end automation, not just advice
+
+### Why This Order?
+
+**Phase 2 (MCP) before Phase 3 (Evaluation):**
+- Can't test recommendation validity without MCP tools to check ground truth
+- Evaluation framework needs MCP to verify "did the AI get it right?"
+
+**Phase 3 (Evaluation) before Phase 4 (Agents):**
+- Multi-agent systems are complex; need testing foundation first
+- Can't coordinate agents without measuring if they're working correctly
+
+**Phase 4 (Agents) builds on both:**
+- Agents use MCP tools to interact with real systems
+- Evaluation framework measures agent success rates
+- Together: testable, verifiable, automated workflows
+
+### What This Demonstrates
+
+**Not building:** More of the same (reports, filters, visualizations)
+
+**Building instead:**
+- **MCP integration** → How to ground AI in reality
+- **Evaluation** → How to test AI systems
+- **Multi-agent** → How to orchestrate complex workflows
+
+Each phase moves closer to **production-grade enterprise AI**, not just demos.
 
 ---
 
