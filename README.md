@@ -547,9 +547,6 @@ Current state: The copilot provides **accurate analysis and recommendations**, b
 
 ### What This Demonstrates
 
-**Not building:** More of the same (reports, filters, visualizations)
-
-**Building instead:**
 - **MCP integration** → How to ground AI in reality
 - **Evaluation** → How to test AI systems
 - **Multi-agent** → How to orchestrate complex workflows
