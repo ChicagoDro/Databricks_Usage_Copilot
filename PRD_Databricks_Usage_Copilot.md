@@ -4,7 +4,7 @@
 
 **Product Name:** Databricks Usage Copilot  
 **Version:** 1.0  
-**Document Owner:** Pete Tamisin, Technical Product Manager  
+**Document Owner:** Technical Product Manager  
 **Last Updated:** January 4, 2026  
 **Status:** Active Development
 
