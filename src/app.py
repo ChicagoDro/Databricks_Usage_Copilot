@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from datetime import datetime, timedelta
 import io
@@ -28,13 +28,13 @@ class Chip:
     id: stable identifier used for Streamlit keying (prevents index-shift weirdness)
     label: button label
     prompt: prompt to run when clicked
-    focus: whether the chip is selection-focused (parity with existing chip models)
+    focus: True (use selection), False (no focus), or Dict (custom focus with query_mode, etc)
     group: taxonomy lane (Understand / Diagnose / Optimize / Monitor)
     """
     id: str
     label: str
     prompt: str
-    focus: bool = True
+    focus: Union[bool, Dict[str, Any]] = True
     group: str = "Diagnose"
 
 
@@ -177,6 +177,7 @@ def _render_chip_row(chips: List[Chip], key_prefix: str, columns: int = 3) -> No
         with cols[i % len(cols)]:
             if st.button(chip.label, key=f"{key_prefix}:{chip.id}"):
                 st.session_state.pending_prompt = chip.prompt
+                st.session_state.pending_focus = chip.focus  # Store chip's focus
                 st.rerun()
 
 
@@ -265,6 +266,7 @@ def _build_uncategorized_report_names(report_map: Dict[str, object]) -> List[str
 def _select_report(key: str) -> None:
     st.session_state.selected_report_key = key
     st.session_state.pending_prompt = None
+    st.session_state.pending_focus = None  # Also clear pending_focus
     st.session_state.selection = None
     st.session_state.commentary = []  # Clear commentary when switching reports
     st.rerun()
@@ -423,6 +425,9 @@ def init_state() -> None:
     if "pending_prompt" not in st.session_state:
         st.session_state.pending_prompt = None
 
+    if "pending_focus" not in st.session_state:
+        st.session_state.pending_focus = None
+
     if "debug_mode" not in st.session_state:
         st.session_state.debug_mode = False
 
@@ -459,10 +464,25 @@ def assistant() -> DatabricksUsageAssistant:
 
 
 def run_commentary(prompt: str) -> None:
-    focus = None
-    sel = st.session_state.selection
-    if sel is not None:
-        focus = {"entity_type": sel.entity_type, "entity_id": sel.entity_id}
+    # Check if chip provided custom focus (e.g., with query_mode)
+    pending_focus = st.session_state.get("pending_focus")
+    
+    # If chip provided a dict focus, use it directly
+    if isinstance(pending_focus, dict):
+        focus = pending_focus
+    # If chip focus is True (default), build focus from selection
+    elif pending_focus is True:
+        sel = st.session_state.selection
+        if sel is not None:
+            focus = {"entity_type": sel.entity_type, "entity_id": sel.entity_id}
+        else:
+            focus = None
+    # If chip focus is False or None, no focus
+    else:
+        focus = None
+    
+    # Clear pending_focus after using it
+    st.session_state.pending_focus = None
 
     # ADD LOADING INDICATOR:
     with st.spinner("Generating AI commentary..."):

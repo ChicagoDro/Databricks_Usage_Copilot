@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from langchain_core.documents import Document
@@ -252,64 +254,46 @@ Return JSON with keys intent and entity_type.
 # ---------------------------------------------------------------------------
 
 def _looks_like_job_count_question(q: str) -> bool:
-    ql = q.lower()
-    return ("how many jobs" in ql) or ("number of jobs" in ql)
+    ql = q.lower().strip()
+    return "how many jobs" in ql or "count" in ql and "job" in ql
 
 
 def _looks_like_usage_overview_question(q: str) -> bool:
-    ql = q.lower()
-    return ("tell me about my databricks usage" in ql) or ("summarize my databricks usage" in ql)
+    ql = q.lower().strip()
+    return "usage overview" in ql or "what is my usage" in ql or "show my usage" in ql
 
 
 def _looks_like_jobs_optimization_question(q: str) -> bool:
-    ql = q.lower()
-    return ("jobs need optimizing" in ql) or ("which jobs should i optimize" in ql)
+    ql = q.lower().strip()
+    return (
+        ("which jobs need" in ql or "what jobs need" in ql or "optimize" in ql)
+        and ("optimization" in ql or "optimizing" in ql or "optimize" in ql)
+    )
 
 
 def _extract_top_n(q: str, default: int = 3) -> int:
-    m = re.search(r"\btop\s+(\d+)\b", q.lower())
-    if m:
-        return int(m.group(1))
+    match = re.search(r"\btop\s+(\d+)", q.lower())
+    if match:
+        return int(match.group(1))
     return default
 
 
-# ---------------------------------------------------------------------------
-# Graph explanation helper (your GraphRAGRetriever structure)
-# ---------------------------------------------------------------------------
-
 def build_graph_explanation(node_ids: List[str], retriever: GraphRAGRetriever) -> str:
-    if not node_ids:
-        return "No graph nodes were retrieved."
+    parts = []
+    by_type = {}
+    for nid in node_ids:
+        typ = nid.split("::")[0]
+        by_type.setdefault(typ, []).append(nid)
 
-    nodes = retriever.adj.nodes
-    lines = [f"Retrieved {len(node_ids)} graph nodes (showing up to 12):"]
+    for typ in sorted(by_type):
+        parts.append(f"{typ}: {len(by_type[typ])} nodes")
 
-    for nid in node_ids[:12]:
-        n = nodes.get(nid)
-        if not n:
-            lines.append(f"- {nid} | (missing node)")
-            continue
-
-        ntype = getattr(n, "type", "unknown")
-        props = getattr(n, "properties", {}) or {}
-        name = (
-            props.get("job_name")
-            or props.get("user_name")
-            or props.get("compute_name")
-            or props.get("job_id")
-            or props.get("run_id")
-            or ""
-        )
-        lines.append(f"- {nid} | type={ntype} | name={name}")
-
-    if len(node_ids) > 12:
-        lines.append(f"... ({len(node_ids) - 12} more)")
-
-    return "\n".join(lines)
+    explanation = "[graph_rag_retrieval]\n" + "\n".join(parts)
+    return explanation
 
 
 # ---------------------------------------------------------------------------
-# Result type
+# ChatResult dataclass
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -322,7 +306,7 @@ class ChatResult:
 
 
 # ---------------------------------------------------------------------------
-# Main Orchestrator
+# Main class
 # ---------------------------------------------------------------------------
 
 class DatabricksUsageAssistant:
@@ -343,6 +327,10 @@ class DatabricksUsageAssistant:
         docs = DatabricksDocsRetriever(DOCS_FAISS_INDEX_PATH)
         docs_retriever = docs if docs.is_available() else None
         return cls(graph_retriever=retriever, docs_retriever=docs_retriever)
+
+    # -----------------------------------------------------------------------
+    # Classifier
+    # -----------------------------------------------------------------------
 
     def _classify_question(self, question: str) -> dict:
         raw = self.classifier_chain.invoke({"question": question})
@@ -416,7 +404,7 @@ class DatabricksUsageAssistant:
             counts[t] = counts.get(t, 0) + 1
 
         keys = ["workspace", "user", "job", "job_run", "compute_usage", "sql_query", "event", "eviction"]
-        lines = ["Here’s a high-level overview of your Databricks usage dataset:"]
+        lines = ["Here's a high-level overview of your Databricks usage dataset:"]
         for k in keys:
             if k in counts:
                 lines.append(f"- {k}: {counts[k]}")
@@ -453,6 +441,160 @@ class DatabricksUsageAssistant:
         )
 
     # -----------------------------------------------------------------------
+    # NEW: Failure Investigation Context Builder
+    # -----------------------------------------------------------------------
+
+    def _get_failure_investigation_context(self, job_id: str) -> str:
+        """
+        Execute failure investigation query and format results for LLM context.
+        
+        This provides granular failure data instead of aggregated summaries.
+        Returns detailed failure records with error messages, retry patterns,
+        and spot eviction correlations.
+        """
+        
+        # Load the specialized SQL query
+        # Adjust path based on your project structure
+        sql_file = Path(__file__).parent.parent / "sql" / "queries" / "job_failure_investigation.sql"
+        
+        if not sql_file.exists():
+            return f"""
+## ERROR: Failure Investigation Query Not Found
+
+Expected location: {sql_file}
+
+The failure investigation query file is missing. This query is needed to 
+provide detailed failure analysis with error messages and diagnostic context.
+
+Please ensure the file exists at the expected location.
+"""
+        
+        try:
+            query = sql_file.read_text()
+        except Exception as e:
+            return f"ERROR reading failure investigation query: {e}"
+        
+        # Execute query with job_id parameter
+        # Import db_path from config (same pattern as agent handler)
+        from src.config import USAGE_DB_PATH
+        
+        try:
+            conn = sqlite3.connect(str(USAGE_DB_PATH))
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            results = cursor.execute(query, {"job_id": job_id}).fetchall()
+            conn.close()
+            
+        except Exception as e:
+            return f"""
+## ERROR Executing Failure Investigation Query
+
+Job ID: {job_id}
+Error: {e}
+
+This could indicate:
+1. The SQL query has syntax errors
+2. The database schema doesn't match expectations
+3. Required tables or columns are missing
+
+Please check the query file and database schema.
+"""
+        
+        if not results:
+            return f"""
+## Failure Investigation for {job_id}
+
+**No failure records found.**
+
+This could mean:
+1. The job has no failed runs in the database
+2. All failures have been cleaned up/archived  
+3. The job_id is incorrect
+
+**Suggested Actions:**
+- Verify the job_id is correct
+- Check if failures exist: `SELECT * FROM job_runs WHERE job_id='{job_id}' AND run_status='FAILED'`
+- Review the date range in your filters
+"""
+        
+        # Format results for LLM context
+        formatted = [f"## Failure Investigation for {job_id}\n"]
+        formatted.append(f"**Analysis Date Range:** Most recent 50 failures")
+        formatted.append(f"**Total Failed Runs Analyzed:** {len(results)}\n")
+        
+        # Extract metadata from first row
+        first_row = dict(results[0])
+        formatted.append(f"**Overall Failure Rate:** {first_row['overall_failure_rate_pct']:.1f}%")
+        formatted.append(f"**Total Runs (All Time):** {first_row['total_runs']}")
+        formatted.append(f"**Total Failures (All Time):** {first_row['total_failures']}")
+        formatted.append(f"**Average Spot Usage:** {first_row['avg_spot_pct']:.0f}%")
+        formatted.append(f"**Average Duration:** {first_row['avg_duration_mins']:.1f} mins\n")
+        
+        # Group by failure category for pattern analysis
+        by_category = {}
+        for row in results:
+            cat = row['failure_category']
+            if cat not in by_category:
+                by_category[cat] = []
+            by_category[cat].append(dict(row))
+        
+        # Add category summaries
+        formatted.append(f"### Failure Distribution by Category\n")
+        for category, failures in sorted(by_category.items(), key=lambda x: -len(x[1])):
+            pct = 100 * len(failures) / len(results)
+            formatted.append(f"- **{category}**: {len(failures)} failures ({pct:.1f}%)")
+        
+        formatted.append(f"\n### Detailed Failure Records\n")
+        formatted.append("The following records provide granular details for root cause analysis:\n")
+        
+        # Show detailed records grouped by category
+        for category, failures in sorted(by_category.items(), key=lambda x: -len(x[1])):
+            formatted.append(f"\n#### {category} Failures ({len(failures)} total)\n")
+            
+            # Show up to 5 examples per category
+            for i, f in enumerate(failures[:5], 1):
+                formatted.append(f"**Failure #{i}:**")
+                formatted.append(f"- Run ID: `{f['job_run_id']}`")
+                formatted.append(f"- Timestamp: {f['start_time']} (Date: {f['failure_date']}, Hour: {f['failure_hour']})")
+                formatted.append(f"- Duration: {f['duration_mins']:.1f} mins (baseline avg: {f['avg_duration_mins']:.1f}, deviation: {f['pct_duration_deviation']:.1f}%)")
+                formatted.append(f"- **Error Message**: {f['error_summary']}")
+                formatted.append(f"- Spot Usage: {f['spot_pct']:.0f}% (baseline avg: {f['avg_spot_pct']:.0f}%)")
+                formatted.append(f"- Instance Type: {f['worker_instance_type']}")
+                formatted.append(f"- Cluster Size: {f['min_nodes']}-{f['max_nodes']} nodes")
+                formatted.append(f"- Autoscaling: {'Enabled' if f['is_autoscaling_enabled'] else 'Disabled'}")
+                formatted.append(f"- Retry Count: {f['retry_count']}")
+                
+                if f['retry_count'] > 0 and f['retry_run_ids']:
+                    formatted.append(f"- Retry Run IDs: {f['retry_run_ids']}")
+                    
+                formatted.append(f"- Nearby Evictions (within 2h): {f['nearby_evictions']}")
+                
+                if f['nearby_evictions'] > 0 and f['eviction_reasons']:
+                    formatted.append(f"- Eviction Reasons: {f['eviction_reasons']}")
+                    
+                if f['min_spot_price']:
+                    formatted.append(f"- Spot Price Range: ${f['min_spot_price']:.4f} - ${f['max_spot_price']:.4f}")
+                
+                formatted.append("")  # Blank line between failures
+            
+            if len(failures) > 5:
+                formatted.append(f"*({len(failures) - 5} more {category} failures not shown for brevity)*\n")
+        
+        # Add analysis hints for the LLM
+        formatted.append(f"\n### Analysis Guidelines\n")
+        formatted.append("When analyzing this data, consider:")
+        formatted.append("1. **Error Patterns**: Group by `failure_category` and `error_summary` to identify dominant failure types")
+        formatted.append("2. **Temporal Clustering**: Check if failures cluster by `failure_date` or `failure_hour`")
+        formatted.append("3. **Spot Correlation**: Compare `spot_pct` vs `avg_spot_pct` to see if high spot usage correlates with failures")
+        formatted.append("4. **Eviction Impact**: Analyze `nearby_evictions` - how many failures have evictions within 2-hour windows?")
+        formatted.append("5. **Retry Waste**: Calculate cost impact of `retry_count` (failed retries waste compute)")
+        formatted.append("6. **Duration Anomalies**: Look for `pct_duration_deviation` > 50% indicating performance degradation before failure")
+        formatted.append("7. **Configuration Changes**: Compare failed run configs (spot_pct, instance_type, cluster_size) to baseline")
+        
+        return "\n".join(formatted)
+
+    # -----------------------------------------------------------------------
     # Context rendering
     # -----------------------------------------------------------------------
 
@@ -486,11 +628,62 @@ class DatabricksUsageAssistant:
     # -----------------------------------------------------------------------
 
     def answer(self, question: str, focus: Optional[dict] = None) -> ChatResult:
-        # NEW - Check for agent call
+        # Check for agent call
         if question.startswith("AGENT:"):
             return self._handle_agent_call(question, focus)
+        
+        # NEW: Check for specialized query modes (e.g., failure investigation)
+        query_mode = (focus or {}).get("query_mode")
+        entity_id = (focus or {}).get("entity_id")
+        
+        # If this is a failure investigation request, use specialized query
+        if query_mode == "failure_investigation" and entity_id:
+            # Build specialized failure investigation context
+            failure_context = self._get_failure_investigation_context(entity_id)
+            
+            # Still get graph context for relationships
+            docs, node_ids = self.graph_retriever.get_subgraph_for_query(
+                query=question,
+                anchor_k=4,
+                max_hops=2,
+                max_nodes=40,
+            )
+            
+            graph_context = self._render_context(docs)
+            
+            # Combine contexts with clear separation
+            context_str = f"""=== FAILURE INVESTIGATION DATA ===
+{failure_context}
+
+=== GRAPH RELATIONSHIPS (additional context) ===
+{graph_context}
+"""
+            
+            graph_explanation = build_graph_explanation(node_ids=node_ids, retriever=self.graph_retriever)
+            graph_explanation = (graph_explanation or "") + "\n\n[failure_investigation_mode]\nUsing specialized failure investigation query"
+            
+            if focus:
+                graph_explanation = (graph_explanation or "") + "\n\n[focus]\n" + json.dumps(focus, indent=2)
+            
+            llm_prompt_text = (
+                ASSISTANT_SYSTEM_PROMPT
+                + "\n\nCONTEXT:\n"
+                + context_str
+                + "\n\nQUESTION:\n"
+                + question
+            )
+            
+            answer_text = self.chain.invoke({"context": context_str, "question": question})
+            
+            return ChatResult(
+                answer=answer_text,
+                context_docs=docs,
+                graph_explanation=graph_explanation,
+                llm_prompt=llm_prompt_text,
+                llm_context=context_str,
+            )
     
-        # ... existing logic continues
+        # Continue with existing logic for non-specialized queries
         if _looks_like_job_count_question(question):
             return self._answer_global_aggregate("job")
 
@@ -557,7 +750,7 @@ class DatabricksUsageAssistant:
 
         answer_text = self.chain.invoke({"context": context_str, "question": question})
 
-        # ✅ Add deterministic Sources section to the answer if vendor docs were used
+        # Add deterministic Sources section to the answer if vendor docs were used
         if vendor_docs:
             answer_text = _append_sources_to_answer(answer_text, vendor_docs)
 
@@ -626,7 +819,6 @@ class DatabricksUsageAssistant:
                 result = agent.execute(task=task, context=context)
                 
                 # Format result for display with Markdown
-                # FIXED: No leading spaces in the markdown!
                 answer_text = f"""## 🤖 Agent Investigation Complete
 
 ### Root Cause
